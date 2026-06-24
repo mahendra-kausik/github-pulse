@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: stg_github_events
+    description: One cleaned, deduped row per GH Archive event.
+    columns:
+      - name: event_id
+        description: GitHub event id.
+        data_tests:
+          - not_null
+          - unique
+      - name: event_type
+        description: Event type.
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["PushEvent", "WatchEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent"]
+      - name: event_date
+        description: DATE partition key.
+        data_tests:
+          - not_null
+      - name: repo_id
+        description: Repository id.

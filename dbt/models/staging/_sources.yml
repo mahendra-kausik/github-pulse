@@ -1,0 +1,17 @@
+version: 2
+
+sources:
+  - name: raw
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: "{{ env_var('BQ_DATASET_RAW', 'github_pulse_raw') }}"
+    tables:
+      - name: events
+        description: >
+          Raw GH Archive events loaded by ingestion/load_bq.py — slim projection only.
+          Partitioned by event_date, clustered by event_type.
+        loaded_at_field: created_at
+        columns:
+          - name: id
+            description: GitHub event id (string). Dedupe key.
+          - name: event_date
+            description: DATE partition key. ALWAYS filter on this.

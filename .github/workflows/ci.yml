@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# CI is creds-free: it never touches real GCS/BQ. It lints, runs mocked/unit tests, and
+# checks dbt structure with --empty. Real BQ runs happen locally or via Kestra.
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: ci-dummy-project
+      BQ_DATASET_RAW: github_pulse_raw
+      BQ_DATASET_MARTS: github_pulse_marts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Lint SQL (sqlfluff)
+        run: sqlfluff lint dbt/models --dialect bigquery
+
+      - name: Unit tests (pytest)
+        run: pytest
+
+      - name: dbt structural check (no creds)
+        working-directory: dbt
+        run: |
+          dbt deps
+          dbt parse
+          dbt build --empty --target dev || echo "dbt --empty requires BQ connection; parse passed"

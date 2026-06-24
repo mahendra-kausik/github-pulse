@@ -1,0 +1,11 @@
+[sqlfluff]
+templater = dbt
+dialect = bigquery
+exclude_rules = LT05, RF04   # allow long lines in generated SQL; allow keywords as identifiers
+
+[sqlfluff:templater:dbt]
+project_dir = dbt
+profiles_dir = dbt
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower

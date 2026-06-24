@@ -1,0 +1,64 @@
+id: github_pulse
+namespace: github.pulse
+
+# Daily batch: download -> upload_gcs -> load_bq -> dbt build, for one date.
+# - Manual/backfill run: set the `date` input.
+# - Scheduled run: the trigger passes yesterday's date (GH Archive lags ~a day).
+
+inputs:
+  - id: date
+    type: STRING
+    defaults: "{{ now() | dateAdd(-1, 'DAYS') | date('yyyy-MM-dd') }}"
+    description: UTC date to ingest, YYYY-MM-DD
+
+variables:
+  repo_url: "https://github.com/your-username/github-pulse.git"   # CHANGE_ME
+
+tasks:
+  - id: pipeline
+    type: io.kestra.plugin.core.flow.WorkingDirectory
+    tasks:
+      - id: clone
+        type: io.kestra.plugin.git.Clone
+        url: "{{ vars.repo_url }}"
+        branch: main
+
+      - id: ingest
+        type: io.kestra.plugin.scripts.python.Commands
+        taskRunner:
+          type: io.kestra.plugin.scripts.runner.docker.Docker
+        containerImage: python:3.11-slim
+        env:
+          GCP_PROJECT_ID: "{{ secret('GCP_PROJECT_ID') }}"
+          GCS_BUCKET: "{{ secret('GCS_BUCKET') }}"
+          GOOGLE_APPLICATION_CREDENTIALS: "/secrets/sa-key.json"
+        commands:
+          - pip install -q -r requirements.txt
+          - python -m ingestion.download   --date {{ inputs.date }}
+          - python -m ingestion.transform  --date {{ inputs.date }}
+          - python -m ingestion.upload_gcs --date {{ inputs.date }}
+          - python -m ingestion.load_bq    --date {{ inputs.date }}
+
+      - id: dbt_build
+        type: io.kestra.plugin.scripts.python.Commands
+        taskRunner:
+          type: io.kestra.plugin.scripts.runner.docker.Docker
+        containerImage: python:3.11-slim
+        env:
+          GCP_PROJECT_ID: "{{ secret('GCP_PROJECT_ID') }}"
+          GOOGLE_APPLICATION_CREDENTIALS: "/secrets/sa-key.json"
+          DBT_PROFILES_DIR: "./dbt"
+        commands:
+          - pip install -q dbt-bigquery
+          - cd dbt && dbt deps && dbt build --target service_account
+
+triggers:
+  - id: daily
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 6 * * *"   # 06:00 UTC daily; GH Archive for "yesterday" is available by then
+
+# Backfill the 7-day window from the UI/CLI with:
+#   for d in 0 1 2 3 4 5 6; do
+#     date=$(date -u -d "2024-01-0$((d+1))" +%F)
+#     kestra flow execute github.pulse github_pulse --inputs date=$date
+#   done

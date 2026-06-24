@@ -1,0 +1,26 @@
+# Env-var driven so it is safe to commit (no secrets here).
+# Local dev: uses ADC (gcloud auth application-default login) via method: oauth.
+# maximum_bytes_billed is the cost guardrail — a query exceeding it fails instead of billing.
+github_pulse:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('BQ_DATASET_MARTS', 'github_pulse_marts') }}"
+      location: "{{ env_var('GCP_REGION', 'US') }}"
+      threads: 4
+      priority: interactive
+      maximum_bytes_billed: "{{ env_var('MAX_BYTES_BILLED', '5000000000') | int }}"
+
+    # Used by Kestra-in-Docker; auth via mounted, gitignored SA key.
+    service_account:
+      type: bigquery
+      method: service-account
+      keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('BQ_DATASET_MARTS', 'github_pulse_marts') }}"
+      location: "{{ env_var('GCP_REGION', 'US') }}"
+      threads: 4
+      maximum_bytes_billed: "{{ env_var('MAX_BYTES_BILLED', '5000000000') | int }}"

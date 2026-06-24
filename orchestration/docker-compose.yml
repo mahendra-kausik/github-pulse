@@ -1,0 +1,51 @@
+# Kestra + Postgres. ~1-2 GB RAM, runs the daily-batch demo locally (no always-on VM).
+# UI at http://localhost:8080. Flows in ./flows are auto-loaded.
+volumes:
+  postgres-data:
+  kestra-data:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kestra
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: kestra
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestra"]
+      interval: 5s
+      retries: 10
+
+  kestra:
+    image: kestra/kestra:latest
+    command: server standalone --worker-thread=4
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgres:5432/kestra
+            username: kestra
+            password: kestra
+        kestra:
+          repository:
+            type: postgres
+          queue:
+            type: postgres
+          storage:
+            type: local
+            local:
+              base-path: "/app/storage"
+      # Service-account key for GCS/BQ — mount a gitignored key file and point here.
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/sa-key.json
+    ports:
+      - "8080:8080"
+    volumes:
+      - kestra-data:/app/storage
+      - ./flows:/app/flows
+      # Mount your gitignored SA key (create via terraform output service_account_email).
+      - ./secrets:/secrets:ro

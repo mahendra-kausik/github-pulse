@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: fct_events
+    description: Fact table, grain = one GH Archive event. Partitioned/clustered.
+    columns:
+      - name: event_id
+        data_tests: [not_null, unique]
+      - name: event_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["PushEvent", "WatchEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent"]
+      - name: event_date
+        data_tests: [not_null]
+      - name: repo_id
+        description: FK to dim_repo.
+        data_tests:
+          - relationships:
+              to: ref('dim_repo')
+              field: repo_id
+              config:
+                where: "repo_id is not null"
+
+  - name: dim_repo
+    description: One row per repo; language from latest PR event that carried it.
+    columns:
+      - name: repo_id
+        data_tests: [not_null, unique]
+
+  - name: agg_event_type_daily
+    description: Categorical tile source — counts per (event_date, event_type).
+    columns:
+      - name: event_date
+        data_tests: [not_null]
+      - name: event_type
+        data_tests: [not_null]
+      - name: event_count
+        data_tests: [not_null]
+
+  - name: agg_language_daily
+    description: Language tile source — PR-event counts per (event_date, language).
+    columns:
+      - name: event_date
+        data_tests: [not_null]
+      - name: language
+        data_tests: [not_null]
+      - name: pr_event_count
+        data_tests: [not_null]

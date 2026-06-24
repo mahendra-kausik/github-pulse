@@ -1,0 +1,18 @@
+[project]
+name = "github-pulse"
+version = "0.1.0"
+description = "Batch pipeline: GH Archive events -> BigQuery -> Looker Studio momentum dashboard"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["ingestion", "tests"]
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, bugbear, pyupgrade, comprehensions
+select = ["E", "F", "I", "B", "UP", "C4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
