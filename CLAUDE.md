@@ -17,7 +17,7 @@ How each component maps to the Zoomcamp rubric:
 | Data lake → DWH          | Parquet in GCS → BigQuery raw table                          |
 | Partitioned/clustered DWH| BQ raw + `fct_events` partitioned by event date, clustered by event type |
 | Transformations          | dbt staging → marts (`dbt/`)                                 |
-| Dashboard (2 tiles)      | Looker Studio: 1 categorical + 1 temporal tile              |
+| Dashboard (3 tiles)      | Looker Studio: trending repos + language momentum + momentum bursts |
 | Reproducibility          | `make setup` + README run from a fresh clone                 |
 
 **Honest framing:** for SWE roles this is a *supporting* project anchor that demonstrates
@@ -40,13 +40,21 @@ GCS data lake (raw .gz + parquet)
 BigQuery raw table   (partitioned by event date, clustered by event type)
         │  dbt
         ▼
-dbt staging → marts  (fct_events, dim_repo, agg_event_type_daily, agg_language_daily)
+dbt staging → marts  (fct_events, dim_repo, agg_repo_trending_daily, agg_language_daily, agg_repo_momentum)
         │
         ▼
-Looker Studio dashboard (2 tiles + date / event-type / language filters)
+Looker Studio dashboard (3 tiles + date / repo / language filters)
 ```
 
 Orchestrated by **Kestra**, infra by **Terraform**, CI by **GitHub Actions**.
+
+## Design Decisions
+
+See [`DESIGN_DECISIONS.md`](DESIGN_DECISIONS.md) for the full record — every major choice with
+what was chosen, what was rejected, and why, written for interview prep.
+
+**Every time a new component is added to this project, update `DESIGN_DECISIONS.md` with the
+rationale before closing the task.**
 
 ## Repo layout
 
@@ -111,8 +119,10 @@ pytest tests/test_transform.py::test_pr_language_extraction   # a single test
 **Data semantics:**
 - **Language is only available on PR events** — `PullRequestEvent.payload.pull_request.base.repo.language`.
   `PushEvent`/`WatchEvent`/`IssuesEvent` carry only a bare `repo` (id/name/url). So
-  `agg_language_daily` is derived from PR events only; the always-available categorical signal is
-  event-type share (`agg_event_type_daily`).
+  `agg_language_daily` is derived from PR events only — it reflects language activity via PRs,
+  not all commits. Known limitation; enrichment via GitHub REST API is a documented "what's next".
+- **Star signal = WatchEvent.** A "star" on GitHub fires a `WatchEvent`. `agg_repo_trending_daily`
+  counts these per repo per day for the trending-repos tile.
 
 **Secrets:**
 - Local dev uses ADC (`gcloud auth application-default login`) — no key file.
@@ -125,8 +135,15 @@ pytest tests/test_transform.py::test_pr_language_extraction   # a single test
 - **`fct_events`** — fact, grain = **one GH Archive event**. Partitioned by `event_date`,
   clustered by `event_type`. FK `repo_id` → `dim_repo`.
 - **`dim_repo`** — distinct repos (`repo_id`, `repo_name`, latest known `language` from PR events).
-- **`agg_event_type_daily`** — grain = (`event_date`, `event_type`); counts. Feeds categorical tile.
-- **`agg_language_daily`** — grain = (`event_date`, `language`); PR-event counts. Feeds language tile.
+- **`agg_repo_trending_daily`** — grain = (`event_date`, `repo_id`, `repo_name`); WatchEvent
+  (star) counts per repo per day. **Feeds tile 1: trending repos.**
+- **`agg_language_daily`** — grain = (`event_date`, `language`); PR-event counts only (language
+  not available on other event types). **Feeds tile 2: language momentum.**
+- **`agg_repo_momentum`** — grain = (`event_date`, `repo_id`, `repo_name`); cross-signal:
+  `watch_count + fork_count + pr_count` summed per repo per day. Repos spiking across all three
+  signals simultaneously likely went viral. **Feeds tile 3: momentum bursts.**
+- **`agg_event_type_daily`** — grain = (`event_date`, `event_type`); supporting/diagnostic table,
+  not a primary dashboard tile.
 
 ## Build roadmap / status checklist
 
@@ -139,7 +156,10 @@ pytest tests/test_transform.py::test_pr_language_extraction   # a single test
       `dbt build` green; `maximum_bytes_billed` set.
 - [ ] 5. Kestra — `docker compose up`; flow chains tasks; daily schedule + 7-day backfill; one
       end-to-end run populates marts.
-- [ ] 6. Looker Studio — 2 tiles + date/event-type/language filters; screenshots → `images/`.
+- [ ] 6. Looker Studio — 3 tiles + filters; screenshots → `images/`.
+      - Tile 1: top trending repos this week (bar chart, `agg_repo_trending_daily`, filter by date)
+      - Tile 2: language momentum (line chart, `agg_language_daily`, filter by language/date)
+      - Tile 3: momentum burst repos (table ranked by burst score, `agg_repo_momentum`, filter by date)
 - [ ] 7. Extra mile — Makefile, pytest, ruff + sqlfluff, GitHub Actions CI.
 - [ ] 8. README + cleanup — problem, diagram, run steps, "how I kept it free", "what's next".
 
