@@ -12,7 +12,7 @@ inputs:
     description: UTC date to ingest, YYYY-MM-DD
 
 variables:
-  repo_url: "https://github.com/your-username/github-pulse.git"   # CHANGE_ME
+  repo_url: "https://github.com/mahendra-kausik/github-pulse.git"
 
 tasks:
   - id: pipeline

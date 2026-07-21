@@ -266,3 +266,24 @@ resources rather than project-wide roles demonstrates it.
 the only step, not a list of console clicks. It also lets me demonstrate least-privilege IAM:
 the SA key Kestra uses can only write to this project's specific bucket and two datasets,
 nothing else."
+
+---
+
+## 11. Mart model design: separate agg_repo_trending_daily and agg_repo_momentum
+
+**Chosen:** Two separate mart models for the repo-signal tiles:
+- `agg_repo_trending_daily` — WatchEvent (star) count only, grain = (event_date, repo)
+- `agg_repo_momentum` — cross-signal burst score (watch + fork + PR), grain = (event_date, repo)
+
+**Rejected:** A single combined repo-signal model that merges all three metrics
+
+**Why separate models:**
+The two tiles answer different questions. `agg_repo_trending_daily` answers "what's popular right now?" (pure star velocity — fast to compute, easy to explain). `agg_repo_momentum` answers "did a repo genuinely go viral?" (correlated spike across uncorrelated signals — harder to game). Merging them into one model couples a simple time-series metric with a composite score in a way that makes neither cleaner.
+
+**Why `burst_score = watch + fork + PR` specifically:**
+Three signals are deliberately uncorrelated: starring is passive (one click), forking implies intent to use or contribute, opening a PR implies active work. A bot can inflate any single signal cheaply. Spiking all three on the same day strongly implies a real human audience discovered the repo. The score is additive (not a ratio or weighted average) to keep it explainable without domain knowledge.
+
+**Why `countif` instead of a pivot/conditional join:**
+Both models read from `fct_events` and use `countif(event_type = '...')` to count each signal in a single scan. A pivot or separate subquery per event type would require three table reads instead of one — three times the bytes billed for the same result.
+
+**Interview answer:** "The two tiles answer different questions — popularity vs. genuine viral momentum — so I kept them as separate models. The burst score uses three uncorrelated signals because any single signal is gameable; spiking all three on the same day is a reliable indicator of real human discovery."

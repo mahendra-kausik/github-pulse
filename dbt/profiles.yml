@@ -9,7 +9,7 @@ github_pulse:
       method: oauth
       project: "{{ env_var('GCP_PROJECT_ID') }}"
       dataset: "{{ env_var('BQ_DATASET_MARTS', 'github_pulse_marts') }}"
-      location: "{{ env_var('GCP_REGION', 'US') }}"
+      location: "{{ env_var('GCP_REGION', 'asia-south1') }}"
       threads: 4
       priority: interactive
       maximum_bytes_billed: "{{ env_var('MAX_BYTES_BILLED', '5000000000') | int }}"
@@ -21,6 +21,6 @@ github_pulse:
       keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
       project: "{{ env_var('GCP_PROJECT_ID') }}"
       dataset: "{{ env_var('BQ_DATASET_MARTS', 'github_pulse_marts') }}"
-      location: "{{ env_var('GCP_REGION', 'US') }}"
+      location: "{{ env_var('GCP_REGION', 'asia-south1') }}"
       threads: 4
       maximum_bytes_billed: "{{ env_var('MAX_BYTES_BILLED', '5000000000') | int }}"

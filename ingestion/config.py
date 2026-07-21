@@ -62,7 +62,7 @@ def load_settings() -> Settings:
 
     return Settings(
         project_id=required("GCP_PROJECT_ID"),
-        region=os.environ.get("GCP_REGION", "US"),
+        region=os.environ.get("GCP_REGION", "asia-south1"),
         bucket=required("GCS_BUCKET"),
         dataset_raw=os.environ.get("BQ_DATASET_RAW", "github_pulse_raw"),
         dataset_marts=os.environ.get("BQ_DATASET_MARTS", "github_pulse_marts"),

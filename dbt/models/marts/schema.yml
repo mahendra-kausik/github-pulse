@@ -47,3 +47,27 @@ models:
         data_tests: [not_null]
       - name: pr_event_count
         data_tests: [not_null]
+
+  - name: agg_repo_trending_daily
+    description: Tile 1 source — WatchEvent (star) counts per (event_date, repo).
+    columns:
+      - name: event_date
+        data_tests: [not_null]
+      - name: repo_id
+        data_tests: [not_null]
+      - name: repo_name
+        data_tests: [not_null]
+      - name: star_count
+        data_tests: [not_null]
+
+  - name: agg_repo_momentum
+    description: Tile 3 source — cross-signal burst score (watch + fork + PR) per (event_date, repo).
+    columns:
+      - name: event_date
+        data_tests: [not_null]
+      - name: repo_id
+        data_tests: [not_null]
+      - name: repo_name
+        data_tests: [not_null]
+      - name: burst_score
+        data_tests: [not_null]

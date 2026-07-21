@@ -29,7 +29,7 @@ GH Archive .json.gz ──► transform (slim Parquet) ──► GCS lake ──
   stream-parses them, keeps only needed fields (incl. PR `base.repo.language`), writes Parquet,
   uploads to GCS, loads to a partitioned + clustered BigQuery table.
 - **Warehouse** (`dbt/`): staging (cast/dedupe) → marts (`fct_events`, `dim_repo`,
-  `agg_event_type_daily`, `agg_language_daily`).
+  `agg_repo_trending_daily`, `agg_language_daily`, `agg_repo_momentum`, `agg_event_type_daily`).
 - **Orchestration** (`orchestration/`): Kestra flow chaining the stages, with a daily schedule
   and a 7-day backfill.
 - **Infra** (`terraform/`): GCS bucket + `raw`/`marts` BQ datasets + least-privilege service account.
@@ -39,9 +39,10 @@ GH Archive .json.gz ──► transform (slim Parquet) ──► GCS lake ──
 
 ## Dashboard
 
-Two tiles in Looker Studio, with date / event-type / language filters:
-1. **Categorical** — event-type share + top repos (works across all events).
-2. **Temporal** — daily language momentum from PR events (`agg_language_daily`).
+Three tiles in Looker Studio, with date / repo / language filters:
+1. **Trending repos** — top repos by star (WatchEvent) count this week (`agg_repo_trending_daily`).
+2. **Language momentum** — daily PR-event counts per language over time (`agg_language_daily`).
+3. **Momentum bursts** — repos ranked by cross-signal burst score (watch + fork + PR on the same day, `agg_repo_momentum`).
 
 ![Dashboard](images/dashboard.png)
 
