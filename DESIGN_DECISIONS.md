@@ -497,3 +497,85 @@ credentials the Kestra container already had. Getting it working meant reading t
 its default task runner isn't what the docs example implies, and it ships a pip-less uv venv that
 shadows the system Python. I found both by inspecting the running container rather than guessing at
 the error message."
+
+---
+
+## 17. Live daily schedule: GitHub Actions, not Kestra-on-a-laptop or Cloud Run
+
+**Chosen:** a scheduled GitHub Actions workflow (`.github/workflows/daily_ingest.yml`) runs the
+pipeline unattended every day; Kestra's own daily trigger ships `disabled: true`
+**Rejected:** leaving Kestra-in-Docker as the live schedule; Cloud Run Job + Cloud Scheduler
+
+**Why not Kestra-in-Docker as the live schedule:** it only runs while its Docker container is up,
+which on a laptop means "whenever I happen to have it open." A pipeline that's supposed to run
+daily but only runs when someone remembers to start Docker isn't actually running daily. This isn't
+a defect in the Kestra work from §15–16 — Kestra is still the demonstrated orchestrator and the
+on-demand/backfill path — it's a mismatch between "runs in a laptop-hosted container" and "runs
+unattended, forever."
+
+**Why GitHub Actions over Cloud Run + Cloud Scheduler:** both are viable and free at this scale.
+GitHub Actions won because it's ~15 minutes of work reusing the exact command sequence already
+proven in the Kestra flow's `ingest`/`dbt_build` tasks, versus a few hours to containerize
+(Dockerfile, Artifact Registry, IAM, new Terraform resources) for materially the same outcome. The
+repo is public, so Actions minutes are free with no cap — not a trial-credit-subsidized "free for
+now."
+
+**Checked before deciding, not assumed:** `gcloud scheduler jobs list` showed zero existing jobs in
+`mini-raft-prod`, so no quota conflict with the project's other resource, a `mini-raft` VM
+(`e2-small`, `asia-south1`) unrelated to GitHub Pulse. That VM is also worth knowing about
+independent of this decision: it doesn't qualify for GCP's Always Free VM tier (wrong machine
+shape and region — that tier only covers `e2-micro` in `us-west1`/`us-central1`/`us-east1`), so
+this GCP account wasn't running purely on the always-free tier before this work touched anything.
+
+**Auth reuses what already exists, doesn't mint new credentials:** the workflow authenticates with
+the same service-account key already created for Kestra (`orchestration/secrets/sa-key.json`,
+pasted into a GitHub encrypted secret, never committed). `google-github-actions/auth` sets
+`GOOGLE_APPLICATION_CREDENTIALS`, which both the `google-cloud-*` clients (ADC, zero code change)
+and dbt's existing `service_account` profile target (`dbt/profiles.yml`, built for Kestra's mounted
+key) already read — one credential, two consumers, no new auth code.
+
+**Why disable Kestra's trigger instead of deleting it:** two schedulers both firing
+`ingestion.load_bq`'s `WRITE_TRUNCATE` against the same date is harmless (idempotent, per-partition)
+but pointless — double compute for an identical result. `disabled: true` keeps the trigger, and the
+flow, as a working demo of "this pipeline can be scheduled by a real orchestrator" without it
+competing with the thing actually running live. `recoverMissedSchedules: NONE` travels with it as a
+standing property (not a one-time fix) — re-enabling the trigger after any period of being off
+would otherwise fire one execution per missed day all at once, the same class of bug fixed on the
+GCS Kestra image pin in §15.
+
+**Interview answer:** "The Kestra work stands, but a scheduler that only runs when a laptop's
+Docker is open isn't a real daily schedule. Rather than solve that by deploying Kestra somewhere
+it'd run 24/7, I asked what the actual requirement was — 'runs unattended, cheaply, reusing proven
+commands' — and GitHub Actions cron satisfied that in fifteen minutes versus a few hours to
+containerize for Cloud Run. I kept Kestra as the on-demand orchestrator rather than ripping it out,
+because the requirement changed, not the value of what I'd built."
+
+---
+
+## 18. 30-day BQ retention, knowingly over the free tier
+
+**Chosen:** `default_partition_expiration_ms` = 30 days on the raw dataset
+**Rejected:** 14 days, which would stay inside the 10 GB free tier
+
+**Why this needed a second look:** the original estimate for this window (§ live-data planning)
+assumed a 2026 day of GH Archive data costs ~0.19 GB in BigQuery, extrapolated from the *gzip
+download size* being ~3.4× smaller than a 2024 hour. That ratio doesn't hold for storage — measured
+directly against the live 2026-08-06…12 window, `events` is 1.99 GB for 7 days (~0.285 GB/day), and
+`fct_events` mirrors it almost exactly (same row count, same columns), so the two tables together
+grow at **~0.57 GB/day**. At 30 days that's **~17 GB steady state**, roughly 70% over the 10 GB
+free tier (~$0.15/month in overage once the window fills). A 14-day window would land near 8.2 GB
+— comfortable margin.
+
+**Why 30 anyway:** flagged explicitly with both numbers before deciding, not discovered later. The
+dashboard is more useful with a month of rolling history than two weeks, and $0.15/month is not a
+cost worth trading real dashboard usefulness for — the project's "always-free" framing was a design
+default under uncertainty, not a hard constraint once the actual cost of relaxing it is three cents
+a week. This is a disclosed, deliberate exception to `CLAUDE.md`'s free-tier rule, not a violation
+found after the fact.
+
+**Interview answer:** "My first estimate for this was wrong — I'd extrapolated from download file
+size instead of measuring actual BigQuery storage, and the real number came out about 3× higher.
+Rather than quietly keep the wrong number or silently swap in a shorter window, I recomputed against
+live data, showed both options with real GB and dollar figures, and let the actual tradeoff — a
+better dashboard for fifteen cents a month — be a conscious choice instead of an assumption baked
+into Terraform."

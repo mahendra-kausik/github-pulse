@@ -2,11 +2,12 @@ id: github_pulse
 namespace: github.pulse
 
 # Daily batch: download -> upload_gcs -> load_bq -> dbt build, for one date.
-# - Scheduled run: the `date` input default resolves to yesterday (GH Archive lags ~a day).
-# - Manual/backfill run: set the `date` input — via the UI's "Trigger backfill" on the Schedule
-#   trigger (runs one execution per missed day), or `kestra flow execute github.pulse
-#   github_pulse --inputs date=2024-01-01` per day. For local-only backfills that skip Kestra
-#   and dbt entirely, `make backfill START=2024-01-01 DAYS=7` runs just the ingestion stages.
+# - On-demand only: the daily Schedule trigger below is disabled. .github/workflows/daily_ingest.yml
+#   runs this same command sequence unattended every day, so it works with the laptop off — Kestra
+#   demonstrates the orchestration pattern and stays available for manual/backfill runs.
+# - Manual run: set the `date` input — `kestra flow execute github.pulse github_pulse
+#   --inputs date=2024-01-01`, or via the UI. For local-only backfills that skip Kestra and dbt
+#   entirely, `make backfill START=2024-01-01 DAYS=7` runs just the ingestion stages.
 
 inputs:
   - id: date
@@ -57,6 +58,14 @@ tasks:
           - cd dbt && PATH="$HOME/.local/bin:$PATH" dbt build --target service_account
 
 triggers:
+  # Disabled: .github/workflows/daily_ingest.yml is what runs this unattended every day now,
+  # since it works with the laptop off and Kestra-in-Docker doesn't. Kept (not deleted) so the
+  # flow still demonstrates a scheduled trigger and can be re-enabled for a live demo.
+  # recoverMissedSchedules: NONE is a standing safety property, not just for while it's disabled —
+  # default is ALL, so re-enabling after any downtime would otherwise fire one execution per missed
+  # day all at once.
   - id: daily
     type: io.kestra.plugin.core.trigger.Schedule
     cron: "0 6 * * *"   # 06:00 UTC daily; GH Archive for "yesterday" is available by then
+    disabled: true
+    recoverMissedSchedules: NONE

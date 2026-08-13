@@ -30,9 +30,16 @@ GH Archive .json.gz ──► transform (slim Parquet) ──► GCS lake ──
   uploads to GCS, loads to a partitioned + clustered BigQuery table.
 - **Warehouse** (`dbt/`): staging (cast/dedupe) → marts (`fct_events`, `dim_repo`,
   `agg_repo_trending_daily`, `agg_language_daily`, `agg_repo_momentum`, `agg_event_type_daily`).
-- **Orchestration** (`orchestration/`): Kestra flow chaining the stages on a daily schedule.
-  Backfills run one execution per day, either via the UI or `make backfill` for ingestion-only.
-- **Infra** (`terraform/`): GCS bucket + `raw`/`marts` BQ datasets + least-privilege service account.
+- **Orchestration** (`orchestration/`): a Kestra flow chains the four stages + `dbt build`, and is
+  the on-demand/backfill path (`kestra flow execute`, or `make backfill` for ingestion-only). The
+  **live daily run is `.github/workflows/daily_ingest.yml`** — a scheduled GitHub Actions
+  workflow — since Kestra only runs while its Docker container is up on a laptop, and this pipeline
+  needed to run unattended every day. Kestra's own daily trigger is present but `disabled: true`
+  for that reason; re-enabling it is safe by default (`recoverMissedSchedules: NONE`), so it stays
+  demoable without risking a pile of catch-up executions.
+- **Infra** (`terraform/`): GCS bucket (30-day lifecycle) + `raw` BQ dataset (30-day partition
+  expiration — bounds storage under the free tier for a rolling live pipeline) + `marts` dataset +
+  least-privilege service account.
 - **CI** (`.github/workflows/ci.yml`): creds-free — lint (ruff, sqlfluff) + pytest + `dbt parse`.
 
 ```
@@ -81,6 +88,12 @@ once. That contrast is why the two repo tiles are separate models rather than on
 - **Project columns at ingest** and store **Parquet, not raw JSON** — 7 days stays < ~1 GB.
 - **Partition** raw + `fct_events` by `event_date`, **cluster** by `event_type`; mark them
   `require_partition_filter` so unfiltered scans error instead of scanning everything.
+- **30-day partition expiration** on the raw dataset (`terraform/main.tf`) — bounds storage to a
+  rolling window instead of growing forever. Measured against the live data: `events` +
+  `fct_events` grow at ~0.57 GB/day combined, so 30 days settles around **~17 GB at steady state —
+  over the 10 GB free tier** (~$0.15/month overage). A 14-day window would fit inside the free
+  tier with margin; 30 was kept anyway for a more useful rolling dashboard, trading a few cents a
+  month for it deliberately rather than by accident (`DESIGN_DECISIONS.md` §17).
 - **`maximum_bytes_billed`** set in the dbt profile — a runaway query fails instead of billing.
 - A **GCP billing budget alert** at a low threshold as a backstop.
 
@@ -97,17 +110,23 @@ make setup
 # 2. infra
 make tf-apply
 
-# 3. ingest a 7-day window
-make backfill START=2024-01-01 DAYS=7
+# 3. ingest a 7-day window (use recent dates — the raw table's 30-day partition
+#    expiration silently drops anything that ages out)
+make backfill START=2026-08-06 DAYS=7
 
 # 4. transform
 make dbt
 
-# 5. (optional) run the whole thing on a schedule via Kestra
+# 5. keep it running daily without a laptop: GitHub Actions
+# Settings > Secrets and variables > Actions > New repository secret, name GCP_SA_KEY,
+# paste the contents of the service-account key (terraform output, or reuse Kestra's below).
+# .github/workflows/daily_ingest.yml then runs on its own at 06:00 UTC.
+
+# 6. (optional) Kestra for on-demand runs / demoing the orchestration pattern
 make up
 # open http://localhost:8080, load orchestration/flows/github_pulse.yml (Flows > Import — the
-# postgres-backed setup here doesn't auto-load ./flows), then trigger it manually or wait for
-# the 06:00 UTC daily schedule.
+# postgres-backed setup here doesn't auto-load ./flows), then trigger it manually. Its own daily
+# schedule ships disabled — GitHub Actions is what runs the pipeline unattended.
 ```
 
 Then point Looker Studio at the `github_pulse_marts` dataset and rebuild the three tiles.

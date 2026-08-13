@@ -11,9 +11,10 @@ target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
 vars:
-  # Lower bound for the event_date filters in staging/marts. Override with --vars for backfills
-  # that predate this, though in practice GH Archive + this project both start 2024-01-01.
-  start_date: "2024-01-01"
+  # Lower bound for the event_date filters in staging/marts. Rolls forward as the raw table's
+  # 30-day partition expiration ages out older partitions (terraform/main.tf) — override with
+  # --vars for a one-off historical run.
+  start_date: "2026-08-06"
 
 models:
   github_pulse:

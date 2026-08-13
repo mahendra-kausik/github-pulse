@@ -48,6 +48,11 @@ resource "google_bigquery_dataset" "raw" {
   description                = "Raw GH Archive events (slim projection), loaded by ingestion/load_bq.py"
   delete_contents_on_destroy = true
 
+  # 30-day rolling retention on the live table: without this, storage grows unbounded and blows
+  # past the 10 GB free tier. dbt's marts (+materialized: table) fully rebuild every run, so they
+  # follow the retained window automatically — no dbt-side change needed when partitions expire.
+  default_partition_expiration_ms = 2592000000 # 30 days
+
   depends_on = [google_project_service.apis]
 }
 

@@ -46,7 +46,10 @@ dbt staging → marts  (fct_events, dim_repo, agg_repo_trending_daily, agg_langu
 Looker Studio dashboard (3 tiles + date / repo / language filters)
 ```
 
-Orchestrated by **Kestra**, infra by **Terraform**, CI by **GitHub Actions**.
+Orchestrated on-demand by **Kestra**, run unattended daily by **GitHub Actions**
+(`.github/workflows/daily_ingest.yml` — Kestra-in-Docker only runs while the laptop is on, so it
+demonstrates the orchestration pattern and handles backfills; GitHub Actions is what actually fires
+every day), infra by **Terraform**, CI by **GitHub Actions** (`ci.yml`, separate/creds-free).
 
 ## Design Decisions
 
@@ -164,7 +167,7 @@ pytest tests/test_transform.py::test_pr_language_extraction   # a single test
       - Tile 2: language momentum (line chart, `agg_language_daily`, filter by language/date)
       - Tile 3: momentum burst repos (table ranked by burst score, `agg_repo_momentum`, filter by date)
 - [x] 7. Extra mile — Makefile, pytest, ruff + sqlfluff, GitHub Actions CI.
-- [ ] 8. README + cleanup — problem, diagram, run steps, "how I kept it free", "what's next".
+- [x] 8. README + cleanup — problem, diagram, run steps, "how I kept it free", "what's next".
 
 ## What's next (documented, not built)
 

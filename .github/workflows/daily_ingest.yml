@@ -1,0 +1,59 @@
+name: daily-ingest
+
+# Runs the live pipeline against real GCP credentials, so unlike ci.yml this never triggers on
+# push/PR — only on schedule and manual dispatch. Kestra (orchestration/flows/github_pulse.yml)
+# runs this same command sequence on demand; this is what runs it unattended every day.
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC; GH Archive for "yesterday" is available by then
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "UTC date to ingest (YYYY-MM-DD); defaults to yesterday"
+        required: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: mini-raft-prod
+      GCP_REGION: us-central1
+      GCS_BUCKET: github-pulse-lake-nfc26
+      BQ_DATASET_RAW: github_pulse_raw
+      BQ_DATASET_MARTS: github_pulse_marts
+      BQ_RAW_TABLE: events
+      MAX_BYTES_BILLED: "5000000000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Resolve target date
+        id: d
+        run: |
+          D="${{ github.event.inputs.date }}"
+          if [ -z "$D" ]; then
+            D=$(date -u -d 'yesterday' +%Y-%m-%d)
+          fi
+          echo "date=$D" >> "$GITHUB_OUTPUT"
+
+      - name: Ingest
+        run: |
+          python -m ingestion.download   --date ${{ steps.d.outputs.date }}
+          python -m ingestion.transform  --date ${{ steps.d.outputs.date }}
+          python -m ingestion.upload_gcs --date ${{ steps.d.outputs.date }}
+          python -m ingestion.load_bq    --date ${{ steps.d.outputs.date }}
+
+      - name: dbt build
+        working-directory: dbt
+        run: dbt build --target service_account
