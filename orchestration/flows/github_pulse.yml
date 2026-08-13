@@ -26,24 +26,35 @@ tasks:
         url: "{{ vars.repo_url }}"
         branch: main
 
-      # Both tasks run via Kestra's default Process runner, inside the Kestra container itself.
-      # That container already has the GCP env vars (docker-compose.yml env_file) and the SA key
-      # mount (./secrets:/secrets:ro) — a Docker task runner would need its own docker.sock mount
-      # and its own secret plumbing to reach either, for no benefit at this scale.
+      # Both tasks run via the Process runner, inside the Kestra container itself. That container
+      # already has the GCP env vars (docker-compose.yml env_file) and the SA key mount
+      # (./secrets:/secrets:ro) — the Docker runner (the default for script tasks) would need its
+      # own docker.sock mount and its own secret plumbing to reach either, for no benefit here.
+      # The runner must be declared explicitly: the default is Docker, not Process.
       - id: ingest
         type: io.kestra.plugin.scripts.python.Commands
+        taskRunner:
+          type: io.kestra.plugin.core.runner.Process
+        # /usr/bin/python3 explicitly, not bare `python3`: the Kestra image ships a uv-built venv
+        # at /app/.venv that wins on PATH and has no pip in it. --break-system-packages because
+        # the Debian interpreter is externally managed (PEP 668) and the image has no ensurepip,
+        # so a venv of our own can't be built either. Packages land in ~/.local (non-root).
         commands:
-          - pip install -q -r requirements.txt
-          - python -m ingestion.download   --date {{ inputs.date }}
-          - python -m ingestion.transform  --date {{ inputs.date }}
-          - python -m ingestion.upload_gcs --date {{ inputs.date }}
-          - python -m ingestion.load_bq    --date {{ inputs.date }}
+          - /usr/bin/python3 -m pip install -q --break-system-packages -r requirements.txt
+          - /usr/bin/python3 -m ingestion.download   --date {{ inputs.date }}
+          - /usr/bin/python3 -m ingestion.transform  --date {{ inputs.date }}
+          - /usr/bin/python3 -m ingestion.upload_gcs --date {{ inputs.date }}
+          - /usr/bin/python3 -m ingestion.load_bq    --date {{ inputs.date }}
 
       - id: dbt_build
         type: io.kestra.plugin.scripts.python.Commands
+        taskRunner:
+          type: io.kestra.plugin.core.runner.Process
+        # dbt's console script lands in ~/.local/bin, which isn't on PATH — prepend it inline so
+        # the whole invocation stays one self-contained command.
         commands:
-          - pip install -q dbt-bigquery==1.8.2
-          - cd dbt && dbt build --target service_account
+          - /usr/bin/python3 -m pip install -q --break-system-packages dbt-bigquery==1.8.2
+          - cd dbt && PATH="$HOME/.local/bin:$PATH" dbt build --target service_account
 
 triggers:
   - id: daily

@@ -147,20 +147,23 @@ pytest tests/test_transform.py::test_pr_language_extraction   # a single test
 
 ## Build roadmap / status checklist
 
-- [ ] 0. Walking skeleton — ADC login; one bucket + one dataset by hand; one script does
+- [x] 0. Walking skeleton — ADC login; one bucket + one dataset by hand; one script does
       download→Parquet→GCS→BQ for a single day; eyeball rows in BQ. No Terraform/Kestra/CI.
-- [ ] 1. git init + scaffold + `.gitignore` (keys excluded before any real creds exist).
-- [ ] 2. Terraform — bucket + `raw`/`marts` datasets + least-priv SA; `apply`; confirm no drift.
-- [ ] 3. Ingestion package — parametrized by date; run the 7-day window; verify Parquet sizes.
-- [ ] 4. dbt — staging → marts; tests (not_null/unique/accepted_values/relationships);
-      `dbt build` green; `maximum_bytes_billed` set.
-- [ ] 5. Kestra — `docker compose up`; flow chains tasks; daily schedule + 7-day backfill; one
-      end-to-end run populates marts.
+- [x] 1. git init + scaffold + `.gitignore` (keys excluded before any real creds exist).
+- [x] 2. Terraform — bucket + `raw`/`marts` datasets + least-priv SA; `apply`; confirm no drift.
+      Deployed to `mini-raft-prod` / `us-central1`.
+- [x] 3. Ingestion package — parametrized by date; run the 7-day window; verify Parquet sizes.
+      2024-01-01…01-07 loaded: 7 partitions, 23,662,814 raw rows.
+- [x] 4. dbt — staging → marts; tests (not_null/unique/accepted_values/relationships);
+      `dbt build` green; `maximum_bytes_billed` set. 37/37 pass.
+- [x] 5. Kestra — `docker compose up`; flow chains tasks; daily schedule + 7-day backfill; one
+      end-to-end run populates marts. Verified SUCCESS on `date=2024-01-07` (~7 min, clone →
+      ingest → dbt_build), and the re-run left row counts identical — idempotency proven live.
 - [ ] 6. Looker Studio — 3 tiles + filters; screenshots → `images/`.
       - Tile 1: top trending repos this week (bar chart, `agg_repo_trending_daily`, filter by date)
       - Tile 2: language momentum (line chart, `agg_language_daily`, filter by language/date)
       - Tile 3: momentum burst repos (table ranked by burst score, `agg_repo_momentum`, filter by date)
-- [ ] 7. Extra mile — Makefile, pytest, ruff + sqlfluff, GitHub Actions CI.
+- [x] 7. Extra mile — Makefile, pytest, ruff + sqlfluff, GitHub Actions CI.
 - [ ] 8. README + cleanup — problem, diagram, run steps, "how I kept it free", "what's next".
 
 ## What's next (documented, not built)

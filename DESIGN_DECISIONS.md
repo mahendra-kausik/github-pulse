@@ -452,3 +452,38 @@ previous comment claimed auto-load and cost an hour of "why is my flow not there
 part was that my first pin was to a tag that had been pruned upstream. An unpinned `latest` fails
 silently and later; a pin to a dead tag fails loudly and immediately. I'd rather have the loud
 failure — I fixed it in one step instead of debugging a version drift weeks in."
+
+---
+
+## 16. Kestra script tasks: explicit Process runner, explicit `/usr/bin/python3`
+
+**Chosen:** declare `taskRunner: io.kestra.plugin.core.runner.Process` on both script tasks, and
+invoke the interpreter by absolute path with `--break-system-packages`
+**Rejected:** the Docker task runner (mounting `/var/run/docker.sock` into the Kestra container)
+
+**Why Process:** the ingest and dbt tasks need GCP config and the service-account key. The Kestra
+container already has both — `env_file: ../.env` in compose, and the `./secrets:/secrets:ro` mount.
+The Docker runner spawns a *sibling* container that inherits neither, so it would need a
+`docker.sock` mount (handing the container control of the host Docker daemon) plus its own copy of
+the env and key plumbing. That's a real privilege increase to gain nothing at this scale.
+
+**Two failures this surfaced, both worth knowing:**
+
+1. **The runner default is Docker, not Process.** The flow's comment already *claimed* Process, but
+   never declared it, so the first run died on `Docker socket is not accessible`. A comment
+   describing intent the YAML doesn't state is worse than no comment.
+2. **Bare `python3` is the wrong interpreter.** The Kestra image ships a `uv`-built venv at
+   `/app/.venv` that wins on `PATH` and contains no `pip`, so `pip install` failed with
+   `No module named pip`. The Debian interpreter at `/usr/bin/python3` does have pip but is
+   externally managed (PEP 668), and the image ships no `ensurepip` — so building our own venv
+   isn't an option either. Hence `/usr/bin/python3 -m pip install --break-system-packages`, which
+   installs to `~/.local` as the non-root `kestra` user. dbt's console script lands in
+   `~/.local/bin` (not on `PATH`), so that's prepended inline on the `dbt build` command.
+
+**Interview answer:** "Running the pipeline inside the orchestrator container instead of a sibling
+container was a security call as much as a convenience one — the Docker runner would have meant
+mounting the host Docker socket, which is effectively root on the host, just to re-plumb
+credentials the Kestra container already had. Getting it working meant reading the actual image:
+its default task runner isn't what the docs example implies, and it ships a pip-less uv venv that
+shadows the system Python. I found both by inspecting the running container rather than guessing at
+the error message."
