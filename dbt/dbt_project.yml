@@ -11,10 +11,16 @@ target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
 vars:
-  # Lower bound for the event_date filters in staging/marts. Rolls forward as the raw table's
-  # 30-day partition expiration ages out older partitions (terraform/main.tf) — override with
-  # --vars for a one-off historical run.
-  start_date: "2026-08-06"
+  # Lower bound for the event_date filters in staging/marts. Its ONLY job is to keep a constant
+  # partition filter present so `require_partition_filter` is satisfied and scans stay prunable.
+  #
+  # It must stay OLDER than the retention horizon, never track it. raw.events has a hard 30-day
+  # partition expiration (terraform/main.tf), so that is already the real lower bound on what
+  # exists; a second bound here that tries to "roll forward" only duplicates the same logic in a
+  # place that drifts. This was previously pinned to the 2026-08-06 live-cutover date, which
+  # silently dropped every backfilled day from the marts — dbt still reported success because the
+  # rows simply never matched the filter. Keep it aligned with the in-model defaults below.
+  start_date: "2024-01-01"
 
 models:
   github_pulse:

@@ -12,7 +12,7 @@ github_pulse:
       location: "{{ env_var('GCP_REGION', 'us-central1') }}"
       threads: 4
       priority: interactive
-      maximum_bytes_billed: "{{ env_var('MAX_BYTES_BILLED', '5000000000') | int }}"
+      maximum_bytes_billed: "{{ env_var('MAX_BYTES_BILLED', '20000000000') | int }}"
 
     # Used by Kestra-in-Docker; auth via mounted, gitignored SA key.
     service_account:
@@ -24,4 +24,4 @@ github_pulse:
       location: "{{ env_var('GCP_REGION', 'us-central1') }}"
       threads: 4
       priority: interactive
-      maximum_bytes_billed: "{{ env_var('MAX_BYTES_BILLED', '5000000000') | int }}"
+      maximum_bytes_billed: "{{ env_var('MAX_BYTES_BILLED', '20000000000') | int }}"

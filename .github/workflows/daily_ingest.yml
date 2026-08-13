@@ -22,7 +22,7 @@ jobs:
       BQ_DATASET_RAW: github_pulse_raw
       BQ_DATASET_MARTS: github_pulse_marts
       BQ_RAW_TABLE: events
-      MAX_BYTES_BILLED: "5000000000"
+      MAX_BYTES_BILLED: "20000000000"
     steps:
       - uses: actions/checkout@v4
 

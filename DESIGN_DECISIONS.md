@@ -655,3 +655,45 @@ actually behaves — turned out 89% of repos only ever show up once in a week �
 justify a short TTL and a budget-capped incremental fetcher instead of a one-shot backfill, so the
 same code path handles seeding, daily growth, and recovering from a bad day without any special
 cases."
+
+## 20. `start_date` is a static floor, not a rolling window
+
+**Chosen:** `vars.start_date` pinned to `2024-01-01` — deliberately older than any data that can exist
+**Rejected:** keeping it pinned to the live-cutover date and rolling it forward as retention advances
+
+**The bug it caused:** `start_date` was set to `2026-08-06`, the date of the live-data cutover, with a
+comment saying it "rolls forward as the raw table's 30-day partition expiration ages out older
+partitions." Every staging and mart model filters `event_date >= start_date`, so when 14 days
+(`2026-07-23`…`2026-08-05`) were backfilled into `raw.events`, **none of them reached the marts**.
+`dbt build` reported `PASS=40 ERROR=0` — nothing failed, the rows simply never matched a `where`
+clause. Raw held 75.0M rows while `fct_events` held 23.2M, and the only symptom was a dashboard that
+looked exactly as it had before the backfill.
+
+**Why static beats rolling:** the lower bound's only real job is to keep a constant partition filter
+present so `require_partition_filter` is satisfied and BigQuery can prune. The *actual* lower bound on
+what exists is already enforced in exactly one place — the 30-day `default_partition_expiration_ms` in
+Terraform. A second bound that tries to track the first is duplicated logic, and duplicated logic
+drifts: the two only have to disagree once, silently, to lose data. A floor older than the retention
+horizon can never exclude a real row, and costs nothing, because retention guarantees there is never
+anything older to scan.
+
+**Why not `--vars` for the backfill:** a one-off `dbt build --vars '{start_date: 2026-07-23}'` would
+have fixed the local run and left the committed default untouched — so the next unattended GitHub
+Actions run, which invokes plain `dbt build`, would have rebuilt the marts back down to the 7-day
+window and silently undone the backfill overnight. A scheduled job that reverts your work while you
+sleep is worse than the original bug.
+
+**Guardrail resized, not removed:** with the filter corrected, the full `fct_events` rebuild scans all
+of raw and needed 6.29 GB, tripping `maximum_bytes_billed` at 5 GB — a limit sized when the window was
+7 days. Raised to 20 GB in all four places that pin it (`.env`, `.env.example`, `daily_ingest.yml`,
+`profiles.yml`). The ceiling on a *legitimate* query here is bounded by retention at ~9 GB, so 20 GB
+absorbs event-volume growth while still failing a genuine runaway. Note the failure mode was the
+good one: the guardrail refused the query loudly instead of quietly billing for it.
+
+**Interview answer:** "A backfill I ran looked like it worked — the ingestion logs were clean, dbt
+reported forty passing tests, zero errors — but the dashboard didn't change. The cause was a date
+filter defaulting to the day the project went live, so the older data I'd just loaded was filtered out
+of every model. What made it dangerous wasn't the wrong value, it was that it failed silently: an
+empty result set isn't an error. The fix I liked wasn't correcting the date, it was removing the
+second source of truth entirely — retention already defines the lower bound in Terraform, so the SQL
+filter just needs to be a floor that can never be wrong, not a copy of it that has to be maintained."

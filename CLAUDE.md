@@ -163,7 +163,7 @@ pytest tests/test_transform.py::test_pr_language_extraction   # a single test
 - [x] 2. Terraform — bucket + `raw`/`marts` datasets + least-priv SA; `apply`; confirm no drift.
       Deployed to `mini-raft-prod` / `us-central1`.
 - [x] 3. Ingestion package — parametrized by date; run the 7-day window; verify Parquet sizes.
-      2024-01-01…01-07 loaded: 7 partitions, 23,662,814 raw rows.
+      Live 2026 window loaded: 2026-07-23…08-12, 21 partitions, 75,017,348 raw rows.
 - [x] 4. dbt — staging → marts; tests (not_null/unique/accepted_values/relationships);
       `dbt build` green; `maximum_bytes_billed` set. 37/37 pass.
 - [x] 5. Kestra — `docker compose up`; flow chains tasks; daily schedule + 7-day backfill; one
