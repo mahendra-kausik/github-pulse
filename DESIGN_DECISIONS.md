@@ -353,6 +353,16 @@ The two tiles answer different questions. `agg_repo_trending_daily` answers "wha
 **Why `burst_score = watch + fork + PR` specifically:**
 Three signals are deliberately uncorrelated: starring is passive (one click), forking implies intent to use or contribute, opening a PR implies active work. A bot can inflate any single signal cheaply. Spiking all three on the same day strongly implies a real human audience discovered the repo. The score is additive (not a ratio or weighted average) to keep it explainable without domain knowledge.
 
+**Why the `having` clause is load-bearing:**
+The additive score alone does *not* deliver the property above, and for a while the model didn't
+either — the doc claimed "spiking all three" while the SQL summed three counts without ever
+requiring more than one to be non-zero. Against real data that ranked CI-probe repos
+(`WolseyBankWitness/rediffusion` at 7,379 automated PRs, 0 stars, 0 forks;
+`google-test/signclav2-probe-repo`; `actions-canary/ForkPRCanary`) above genuinely viral ones.
+`having watch_count > 0 and fork_count > 0 and pr_count > 0` is what actually enforces the
+cross-signal requirement, and it drops 99.6% of rows (4,284,388 → 15,135) because almost every
+repo-day touches exactly one signal — which also made this mart 0.32 GB → 1.1 MB.
+
 **Why `countif` instead of a pivot/conditional join:**
 Both models read from `fct_events` and use `countif(event_type = '...')` to count each signal in a single scan. A pivot or separate subquery per event type would require three table reads instead of one — three times the bytes billed for the same result.
 

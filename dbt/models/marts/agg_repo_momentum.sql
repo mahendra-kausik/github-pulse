@@ -16,3 +16,8 @@ select
 from {{ ref('fct_events') }}
 where event_date >= cast('{{ var("start_date", "2024-01-01") }}' as date)
 group by event_date, repo_id, repo_name
+-- The cross-signal requirement is the whole point: an additive score alone ranks a repo with
+-- 7k automated PRs and zero human interest above a genuinely viral one. Requiring all three
+-- signals on the same day is what makes the metric hard to game (and drops 99.6% of rows —
+-- almost every repo-day touches only one signal).
+having watch_count > 0 and fork_count > 0 and pr_count > 0
