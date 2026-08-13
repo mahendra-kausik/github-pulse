@@ -58,12 +58,23 @@ Looker Studio dashboard (3 tiles + date / repo / language filters)
 
 ## Dashboard
 
-Three tiles in Looker Studio, with date / repo / language filters:
+Three tiles in Looker Studio (now branded Data Studio), with date / repo / language filters:
 1. **Trending repos** — top repos by star (WatchEvent) count this week (`agg_repo_trending_daily`).
 2. **Language momentum** — daily PR-event counts per language over time (`agg_language_daily`).
 3. **Momentum bursts** — repos ranked by cross-signal burst score (watch + fork + PR on the same day, `agg_repo_momentum`).
 
-Screenshot pending — dashboard not yet built (roadmap step 6).
+![Dashboard — trending repos and language momentum](images/dashboard.png)
+
+![Dashboard — momentum bursts](images/dashboard-momentum.png)
+
+The date-range control spans all three tiles (each chart sets `event_date` as its date-range
+dimension). The language and repo controls are scoped to their own tile — a Looker Studio filter
+control only reaches charts sharing its data source, and blending three marts to unify them would
+be cosmetic work for no analytical gain.
+
+Worth reading the momentum table against the trending chart: rows 1–3 are star-driven discovery,
+`NixOS/nixpkgs` is almost pure PR volume, and `gunnarmorling/1brc` spikes all three signals at
+once. That contrast is why the two repo tiles are separate models rather than one.
 
 ## How I kept it free
 

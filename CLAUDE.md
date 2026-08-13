@@ -159,7 +159,7 @@ pytest tests/test_transform.py::test_pr_language_extraction   # a single test
 - [x] 5. Kestra — `docker compose up`; flow chains tasks; daily schedule + 7-day backfill; one
       end-to-end run populates marts. Verified SUCCESS on `date=2024-01-07` (~7 min, clone →
       ingest → dbt_build), and the re-run left row counts identical — idempotency proven live.
-- [ ] 6. Looker Studio — 3 tiles + filters; screenshots → `images/`.
+- [x] 6. Looker Studio — 3 tiles + filters; screenshots → `images/`.
       - Tile 1: top trending repos this week (bar chart, `agg_repo_trending_daily`, filter by date)
       - Tile 2: language momentum (line chart, `agg_language_daily`, filter by language/date)
       - Tile 3: momentum burst repos (table ranked by burst score, `agg_repo_momentum`, filter by date)
