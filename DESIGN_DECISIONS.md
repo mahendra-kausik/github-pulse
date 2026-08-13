@@ -579,3 +579,79 @@ Rather than quietly keep the wrong number or silently swap in a shorter window, 
 live data, showed both options with real GB and dollar figures, and let the actual tradeoff — a
 better dashboard for fifteen cents a month — be a conscious choice instead of an assumption baked
 into Terraform."
+
+## 19. Language enrichment via the GitHub REST API, not the event payload
+
+**Chosen:** fetch language from `GET /repos/{owner}/{repo}`, cache it in an unpartitioned
+`raw.repo_language` table, join at query time.
+**Rejected:** keep reading `fct_events.language`; a one-shot backfill job; `MERGE`-on-write;
+partitioning the cache table; stamping language onto event rows at ingest.
+
+**Why this needed fixing at all:** GitHub stopped emitting `language` on the PR event payload
+(`payload.pull_request.base.repo.language`) sometime between the 2024 GH Archive data this project
+was built against and Aug 2026. Verified directly against raw files on disk
+(`data/2026-08-12/2026-08-12-0.json.gz`): `payload.pull_request.base.repo` has only `id`/`name`/
+`url` across all 409 PR events in that hour, zero exceptions. This silently zeroed out two models —
+`agg_language_daily` (0 rows) and `dim_repo.language` (0/2,039,016 non-null) — with no error
+anywhere, because BigQuery doesn't complain about a column that's always NULL. `transform.py` and
+the raw table schema still project the field (kept for schema stability, and it starts working
+again for free if GitHub ever restores it); the marts just stopped reading it.
+
+**Cache location — unpartitioned `raw.repo_language`, not a dbt seed or a partitioned table:** it's
+fetched data, not a transformation, so it's written by Python (`ingestion/enrich_language.py`, same
+shape as `load_bq.ensure_table`) and lives beside `raw.events`. The pipeline SA already has
+`roles/bigquery.dataEditor` on that dataset (`terraform/main.tf`), so no IAM change was needed.
+**It must stay unpartitioned**: the raw dataset carries `default_partition_expiration_ms = 30 days`
+(§18), which only applies to partitioned tables. Partitioning this cache would silently wipe it
+every 30 days and re-trigger a full ~77k-repo refetch — a trap worth naming explicitly since nothing
+would error, it would just quietly get expensive again.
+
+**Append-only + read-side dedup over `MERGE`:** every fetch appends a row; `stg_repo_language`
+takes the freshest per `repo_id` via the same `row_number()` idiom already used in
+`stg_github_events.sql`. Simpler write path (one `load_table_from_json` call, no `MERGE` DML), and
+cheap to keep that way — measured over a 7-day window, 89.3% of the 76,629 repos with PR activity
+appeared on only one day, so the table's growth is dominated by first-time-seen repos regardless of
+write strategy. Upgrade path if it ever gets unwieldy: swap to `MERGE`, which is a drop-in change
+given the dedup already happens at read time.
+
+**Join at query time, not stamped onto events at ingest:** `dim_repo` and `agg_language_daily` join
+`fct_events`/`stg_github_events` to the cache on `repo_id` via `stg_repo_language`, rather than
+writing language into event rows. Consequence worth having: re-enriching a repo retroactively
+corrects every historical row for it still inside the retention window — a misclassification or a
+genuine language change self-heals instead of being frozen at ingest time.
+
+**TTL = 7 days, not 30:** only 32 of 76,629 repos were active on all 7 measured days, and within a
+7-day sample no repo can cross a 7-day boundary twice — so a 7-day and a 30-day TTL produce
+*identical* API cost over that window. Extrapolated to a year the gap only touches the small
+highly-recurring sliver (low thousands of extra calls/year against a 5,000/hr authenticated
+budget). 7 days buys meaningfully fresher data for effectively nothing, and matches the dashboard's
+own rolling window.
+
+**Budget cap + lookback window, not a one-shot backfill job:** each run selects uncached-or-stale
+repos across a lookback window (not a single date), newest-active-first, capped at `--max-calls`.
+One mechanism covers seeding, daily growth, and catch-up after a budget-capped or spike day — a
+per-date design would strand anything missed on its one day forever. This also absorbs data
+irregularity gracefully: one measured day (2026-08-07) alone contributed 45,224 new repos versus
+4k–14k on every other day, almost certainly a bot/mass-PR burst, and the budget cap turns that into
+"picked up over the next couple of runs" instead of a failure.
+
+**404 caches as `language = NULL`, no status column:** deleted/private/renamed-away repos are
+indistinguishable from genuinely language-less repos (e.g. docs-only) for dashboard purposes — both
+are excluded by the existing `language is not null` filter. Caching the null avoids re-fetching dead
+repos on every run. A `status` column can be added later if something ever needs to tell the two
+cases apart; nothing does yet.
+
+**Rate limiting:** on 403/429 the run stops cleanly rather than sleeping out the hour — the next
+scheduled run resumes automatically via the lookback window, so there's no retry logic to get wrong.
+Sequential requests, not concurrent: ~4,500 calls at ~200ms is ~15 minutes, comfortably inside GitHub
+Actions' 6-hour job cap, and GitHub's secondary rate limits actively punish concurrent request
+bursts more than they reward the time saved.
+
+**Interview answer:** "The language tile went from 'seems fine' to 'zero rows' between when I built
+this against 2024 archive data and when I cut it over to live 2026 data — GitHub had quietly
+stopped sending that field on PR payloads, and nothing errored because BigQuery doesn't complain
+about an always-NULL column. Rather than patch around it, I measured how the repo population
+actually behaves — turned out 89% of repos only ever show up once in a week — and used that to
+justify a short TTL and a budget-capped incremental fetcher instead of a one-shot backfill, so the
+same code path handles seeding, daily growth, and recovering from a bad day without any special
+cases."

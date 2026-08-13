@@ -26,8 +26,10 @@ GH Archive .json.gz ──► transform (slim Parquet) ──► GCS lake ──
 ```
 
 - **Ingestion** (`ingestion/`): Python, parametrized by date. Downloads 24 hourly files,
-  stream-parses them, keeps only needed fields (incl. PR `base.repo.language`), writes Parquet,
-  uploads to GCS, loads to a partitioned + clustered BigQuery table.
+  stream-parses them, keeps only needed fields, writes Parquet, uploads to GCS, loads to a
+  partitioned + clustered BigQuery table. A separate enrichment step
+  (`ingestion/enrich_language.py`) fetches repo language from the GitHub REST API and caches it in
+  BigQuery, since GitHub stopped sending it on PR event payloads (see "Design notes" below).
 - **Warehouse** (`dbt/`): staging (cast/dedupe) → marts (`fct_events`, `dim_repo`,
   `agg_repo_trending_daily`, `agg_language_daily`, `agg_repo_momentum`, `agg_event_type_daily`).
 - **Orchestration** (`orchestration/`): a Kestra flow chains the four stages + `dbt build`, and is
@@ -46,14 +48,14 @@ GH Archive .json.gz ──► transform (slim Parquet) ──► GCS lake ──
 GH Archive .json.gz (24 files/day)
         │  download.py
         ▼
-Python extract/transform  ──►  slim columnar Parquet   (transform.py: project only needed
-        │                          fields, incl. PR base.repo.language)
+Python extract/transform  ──►  slim columnar Parquet   (transform.py: project only needed fields)
         │  upload_gcs.py
         ▼
 GCS data lake (raw .gz + parquet)
         │  load_bq.py
         ▼
 BigQuery raw table   (partitioned by event date, clustered by event type)
+        │  enrich_language.py (GitHub REST API -> raw.repo_language cache)
         │  dbt
         ▼
 dbt staging → marts  (fct_events, dim_repo, agg_repo_trending_daily, agg_language_daily, agg_repo_momentum)
@@ -120,6 +122,8 @@ make dbt
 # 5. keep it running daily without a laptop: GitHub Actions
 # Settings > Secrets and variables > Actions > New repository secret, name GCP_SA_KEY,
 # paste the contents of the service-account key (terraform output, or reuse Kestra's below).
+# Also add GH_PAT (a scopeless classic GitHub PAT — public repos only, 5,000 req/hr) for the
+# language-enrichment step.
 # .github/workflows/daily_ingest.yml then runs on its own at 06:00 UTC.
 
 # 6. (optional) Kestra for on-demand runs / demoing the orchestration pattern
@@ -136,9 +140,14 @@ Then point Looker Studio at the `github_pulse_marts` dataset and rebuild the thr
 - **Why Kestra, not Airflow?** A single `docker-compose` (Kestra + Postgres, ~1–2 GB RAM) runs
   the daily-batch demo locally — no always-on VM. Airflow (~4 GB) won't fit a free `e2-micro`.
   Orchestration concepts transfer; I picked the tool that fit the constraint.
-- **Why is language only on PR events?** GH Archive `PushEvent`/`WatchEvent`/`IssuesEvent` carry
-  only a bare `repo`. Language lives at `PullRequestEvent.payload.pull_request.base.repo.language`,
-  so the language tile is PR-derived while the categorical tile uses the always-present event type.
+- **Why does language come from the GitHub REST API instead of the event payload?** GH Archive
+  used to carry it at `PullRequestEvent.payload.pull_request.base.repo.language`, but GitHub
+  stopped sending that field on live data — the field is still projected by `transform.py` for
+  schema stability, but it's always NULL now. `ingestion/enrich_language.py` fetches
+  `GET /repos/{owner}/{repo}` for repos seen in recent PR events and caches the result
+  (unpartitioned, TTL-based refresh, budget-capped per run — see `DESIGN_DECISIONS.md` §19);
+  `dim_repo` and `agg_language_daily` join to that cache instead. `GH_PAT` (a scopeless classic
+  PAT is enough for public repos) needs to be set as a repo secret for this step to run.
 
 ## What's next
 

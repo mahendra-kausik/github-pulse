@@ -54,6 +54,14 @@ jobs:
           python -m ingestion.upload_gcs --date ${{ steps.d.outputs.date }}
           python -m ingestion.load_bq    --date ${{ steps.d.outputs.date }}
 
+      # Restores repo language (no longer present on live PR event payloads) via the GitHub
+      # REST API, cached in BQ. Must run before dbt build — agg_language_daily/dim_repo read
+      # the cache. See ingestion/enrich_language.py + CLAUDE.md "Data semantics".
+      - name: Enrich language
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: python -m ingestion.enrich_language
+
       - name: dbt build
         working-directory: dbt
         run: dbt build --target service_account

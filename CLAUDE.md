@@ -120,10 +120,16 @@ pytest tests/test_transform.py::test_pr_language_extraction   # a single test
 - `maximum_bytes_billed` is set in the dbt profile so a runaway query fails instead of billing.
 
 **Data semantics:**
-- **Language is only available on PR events** — `PullRequestEvent.payload.pull_request.base.repo.language`.
-  `PushEvent`/`WatchEvent`/`IssuesEvent` carry only a bare `repo` (id/name/url). So
-  `agg_language_daily` is derived from PR events only — it reflects language activity via PRs,
-  not all commits. Known limitation; enrichment via GitHub REST API is a documented "what's next".
+- **Language comes from the GitHub REST API, not event payloads.** GitHub used to emit
+  `PullRequestEvent.payload.pull_request.base.repo.language`, which is what `transform.py` and the
+  raw table schema still project (kept for schema stability) — but GitHub stopped sending that
+  field on live data, so it's always NULL now. `ingestion/enrich_language.py` fetches
+  `GET /repos/{owner}/{repo}` for repos seen in recent PR events and caches the result in
+  `raw.repo_language` (unpartitioned — see `DESIGN_DECISIONS.md`); `dim_repo` and
+  `agg_language_daily` join to that cache via `stg_repo_language` instead of reading the dead
+  column. Language is still scoped to repos with PR activity (`PushEvent`/`WatchEvent`/
+  `IssuesEvent` never carry enough to resolve it either way), so `agg_language_daily` reflects
+  language activity via PRs, not all commits.
 - **Star signal = WatchEvent.** A "star" on GitHub fires a `WatchEvent`. `agg_repo_trending_daily`
   counts these per repo per day for the trending-repos tile.
 
@@ -137,7 +143,8 @@ pytest tests/test_transform.py::test_pr_language_extraction   # a single test
 - **`stg_github_events`** — staging: cast types, dedupe by event `id`, one row per event.
 - **`fct_events`** — fact, grain = **one GH Archive event**. Partitioned by `event_date`,
   clustered by `event_type`. FK `repo_id` → `dim_repo`.
-- **`dim_repo`** — distinct repos (`repo_id`, `repo_name`, latest known `language` from PR events).
+- **`dim_repo`** — distinct repos (`repo_id`, `repo_name`, `language` from the `repo_language`
+  GitHub REST API cache — see "Data semantics").
 - **`agg_repo_trending_daily`** — grain = (`event_date`, `repo_id`, `repo_name`); WatchEvent
   (star) counts per repo per day. **Feeds tile 1: trending repos.**
 - **`agg_language_daily`** — grain = (`event_date`, `language`); PR-event counts only (language

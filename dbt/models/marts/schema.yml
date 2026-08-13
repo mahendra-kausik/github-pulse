@@ -39,7 +39,9 @@ models:
                 where: "repo_id is not null and event_date >= '{{ var('start_date') }}'"
 
   - name: dim_repo
-    description: One row per repo; language from latest PR event that carried it.
+    description: >
+      One row per repo; language from the repo_language cache (GitHub REST API enrichment,
+      ingestion/enrich_language.py), not from event payloads — see CLAUDE.md "Data semantics".
     columns:
       - name: repo_id
         data_tests: [not_null, unique]

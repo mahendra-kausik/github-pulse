@@ -21,3 +21,16 @@ models:
           - not_null
       - name: repo_id
         description: Repository id.
+
+  - name: stg_repo_language
+    description: >
+      One row per repo_id, deduped to the freshest fetch from the language cache
+      (raw.repo_language, populated by ingestion/enrich_language.py via the GitHub REST API).
+    columns:
+      - name: repo_id
+        description: Repository id.
+        data_tests:
+          - not_null
+          - unique
+      - name: language
+        description: Repo's primary language, or null (not yet enriched, or genuinely language-less).

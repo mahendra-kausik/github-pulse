@@ -1,17 +1,20 @@
 -- Language-momentum tile source: PR-event counts per (date, language).
--- Language is ONLY present on PullRequestEvent (see CLAUDE.md), so we filter to PR events and
--- drop nulls. This is the temporal "which languages are gaining momentum" signal.
+-- `fct_events.language` is always NULL on live data (GitHub stopped sending it — see CLAUDE.md
+-- "Data semantics"), so language comes from the repo_language cache instead, fetched via the
+-- GitHub REST API by ingestion/enrich_language.py. This is the temporal "which languages are
+-- gaining momentum" signal.
 
 {{ config(materialized='table') }}
 
 select
-    event_date,
-    language,
+    e.event_date,
+    l.language,
     count(*) as pr_event_count,
-    count(distinct repo_id) as distinct_repos
-from {{ ref('fct_events') }}
+    count(distinct e.repo_id) as distinct_repos
+from {{ ref('fct_events') }} as e
+inner join {{ ref('stg_repo_language') }} as l on e.repo_id = l.repo_id
 where
-    event_date >= cast('{{ var("start_date", "2024-01-01") }}' as date)
-    and event_type = 'PullRequestEvent'
-    and language is not null
-group by event_date, language
+    e.event_date >= cast('{{ var("start_date", "2024-01-01") }}' as date)
+    and e.event_type = 'PullRequestEvent'
+    and l.language is not null
+group by e.event_date, l.language

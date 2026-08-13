@@ -46,6 +46,9 @@ tasks:
           - /usr/bin/python3 -m ingestion.transform  --date {{ inputs.date }}
           - /usr/bin/python3 -m ingestion.upload_gcs --date {{ inputs.date }}
           - /usr/bin/python3 -m ingestion.load_bq    --date {{ inputs.date }}
+          # Restores repo language via the GitHub REST API (no longer present on event payloads) —
+          # must run before dbt_build. GH_PAT comes from env_file: ../.env.
+          - /usr/bin/python3 -m ingestion.enrich_language
 
       - id: dbt_build
         type: io.kestra.plugin.scripts.python.Commands

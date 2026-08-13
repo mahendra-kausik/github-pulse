@@ -16,3 +16,10 @@ sources:
             description: GitHub event id (string). Dedupe key.
           - name: event_date
             description: DATE partition key. ALWAYS filter on this.
+
+      - name: repo_language
+        description: >
+          Repo -> language cache, fetched from the GitHub REST API by
+          ingestion/enrich_language.py (language is no longer present on live PR event payloads).
+          Append-only, deliberately UNPARTITIONED (see DESIGN_DECISIONS.md) — do not add
+          partitioning to this table.

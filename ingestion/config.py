@@ -13,7 +13,8 @@ from pathlib import Path
 GHARCHIVE_BASE_URL = "https://data.gharchive.org"  # files look like {date}-{hour}.json.gz
 HOURS_PER_DAY = 24
 
-# Event types we keep. Language is only ever present on PullRequestEvent.
+# Event types we keep. Language used to be present on PullRequestEvent, but GitHub stopped
+# emitting it on live data (see ingestion/enrich_language.py + CLAUDE.md "Data semantics").
 KEEP_EVENT_TYPES = {
     "PushEvent",
     "WatchEvent",
@@ -23,7 +24,9 @@ KEEP_EVENT_TYPES = {
 }
 
 # Fields projected out of each raw event -> becomes the Parquet/BQ schema.
-# language is nested at payload.pull_request.base.repo.language (PR events only).
+# language used to be nested at payload.pull_request.base.repo.language (PR events only); GitHub
+# no longer sends it, so this column is always NULL on live data. Kept for schema stability — see
+# ingestion/enrich_language.py for the API-based replacement, which marts read instead.
 PARQUET_COLUMNS = [
     "id",          # event id (string) -> dedupe key
     "event_type",  # type
@@ -32,7 +35,7 @@ PARQUET_COLUMNS = [
     "actor_login",
     "repo_id",
     "repo_name",
-    "language",    # nullable; non-null only for PR events
+    "language",    # always NULL now; superseded by the repo_language cache table
 ]
 
 
@@ -46,6 +49,7 @@ class Settings:
     raw_table: str
     max_bytes_billed: int
     data_dir: Path
+    github_token: str | None
 
     @property
     def raw_table_fqn(self) -> str:
@@ -69,4 +73,5 @@ def load_settings() -> Settings:
         raw_table=os.environ.get("BQ_RAW_TABLE", "events"),
         max_bytes_billed=int(os.environ.get("MAX_BYTES_BILLED", "5000000000")),
         data_dir=Path(os.environ.get("DATA_DIR", "./data")),
+        github_token=os.environ.get("GH_PAT"),
     )
