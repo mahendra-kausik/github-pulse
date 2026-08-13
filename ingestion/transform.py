@@ -71,29 +71,69 @@ def iter_events(gz_path: Path) -> Iterator[dict]:
                 yield json.loads(line)
 
 
-def transform_day(date: str, day_dir: Path, out_path: Path) -> int:
-    """Transform all .gz files in day_dir into a single Parquet at out_path. Returns row count."""
-    rows: list[dict] = []
-    for gz_path in sorted(day_dir.glob(f"{date}-*.json.gz")):
-        for event in iter_events(gz_path):
-            projected = extract_event(event)
-            if projected is not None:
-                rows.append(projected)
+BATCH_SIZE = 200_000
 
+
+def transform_day(date: str, day_dir: Path, out_path: Path) -> int:
+    """Transform all .gz files in day_dir into a single Parquet at out_path. Returns row count.
+
+    Streams events in bounded batches (BATCH_SIZE rows) straight to the Parquet writer instead of
+    materializing the whole day in memory — a day can be several million kept events. Rows whose
+    event_date falls outside `date` (GH Archive hour files can straddle the UTC day boundary) are
+    dropped so the file loads cleanly into a single BQ partition.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    table = pa.Table.from_pylist(rows, schema=_arrow_schema())
-    pq.write_table(table, out_path, compression="snappy")
-    return len(rows)
+    schema = _arrow_schema()
+    total = 0
+    batch: list[dict] = []
+    writer = pq.ParquetWriter(out_path, schema, compression="snappy")
+    try:
+        for gz_path in sorted(day_dir.glob(f"{date}-*.json.gz")):
+            for event in iter_events(gz_path):
+                projected = extract_event(event)
+                if projected is None or projected["event_date"] != date:
+                    continue
+                batch.append(projected)
+                if len(batch) >= BATCH_SIZE:
+                    writer.write_table(_to_table(batch, schema))
+                    total += len(batch)
+                    batch = []
+        if batch:
+            writer.write_table(_to_table(batch, schema))
+            total += len(batch)
+    finally:
+        writer.close()
+    return total
+
+
+def _to_table(rows: list[dict], schema: pa.Schema) -> pa.Table:
+    """Build a typed Arrow table from a batch of string-valued row dicts."""
+    table = pa.Table.from_pylist(rows, schema=_STRING_SCHEMA)
+    return table.cast(schema)
+
+
+_STRING_SCHEMA = pa.schema(
+    [
+        ("id", pa.string()),
+        ("event_type", pa.string()),
+        ("created_at", pa.string()),
+        ("event_date", pa.string()),
+        ("actor_login", pa.string()),
+        ("repo_id", pa.int64()),
+        ("repo_name", pa.string()),
+        ("language", pa.string()),
+    ]
+)
 
 
 def _arrow_schema() -> pa.Schema:
-    """Explicit schema so empty/partial days still produce a correctly-typed Parquet file."""
+    """Typed schema matching the BigQuery raw table (ingestion.load_bq.ensure_table)."""
     return pa.schema(
         [
             ("id", pa.string()),
             ("event_type", pa.string()),
-            ("created_at", pa.string()),
-            ("event_date", pa.string()),
+            ("created_at", pa.timestamp("us", tz="UTC")),
+            ("event_date", pa.date32()),
             ("actor_login", pa.string()),
             ("repo_id", pa.int64()),
             ("repo_name", pa.string()),

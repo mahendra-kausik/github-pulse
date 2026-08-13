@@ -13,6 +13,14 @@ provider "google" {
   region  = var.region
 }
 
+# APIs a fresh project doesn't enable by default; apply fails with SERVICE_DISABLED without these.
+resource "google_project_service" "apis" {
+  for_each           = toset(["storage.googleapis.com", "bigquery.googleapis.com", "iam.googleapis.com", "cloudresourcemanager.googleapis.com"])
+  project            = var.project_id
+  service            = each.value
+  disable_on_destroy = false
+}
+
 # --- Data lake bucket ---
 resource "google_storage_bucket" "lake" {
   name                        = var.bucket_name
@@ -29,27 +37,35 @@ resource "google_storage_bucket" "lake" {
       type = "Delete"
     }
   }
+
+  depends_on = [google_project_service.apis]
 }
 
 # --- BigQuery datasets ---
 resource "google_bigquery_dataset" "raw" {
-  dataset_id    = var.dataset_raw
-  location      = var.region
-  description   = "Raw GH Archive events (slim projection), loaded by ingestion/load_bq.py"
+  dataset_id                 = var.dataset_raw
+  location                   = var.region
+  description                = "Raw GH Archive events (slim projection), loaded by ingestion/load_bq.py"
   delete_contents_on_destroy = true
+
+  depends_on = [google_project_service.apis]
 }
 
 resource "google_bigquery_dataset" "marts" {
-  dataset_id    = var.dataset_marts
-  location      = var.region
-  description   = "dbt marts: fct_events, dim_repo, agg_*"
+  dataset_id                 = var.dataset_marts
+  location                   = var.region
+  description                = "dbt marts: fct_events, dim_repo, agg_*"
   delete_contents_on_destroy = true
+
+  depends_on = [google_project_service.apis]
 }
 
 # --- Least-privilege service account (used by Kestra-in-Docker) ---
 resource "google_service_account" "pipeline" {
   account_id   = "github-pulse-pipeline"
   display_name = "GitHub Pulse pipeline (ingest + dbt)"
+
+  depends_on = [google_project_service.apis]
 }
 
 # GCS object read/write on the lake bucket only.
@@ -61,9 +77,10 @@ resource "google_storage_bucket_iam_member" "pipeline_storage" {
 
 # BigQuery job + data editing (project-scoped; BQ has no per-dataset jobUser).
 resource "google_project_iam_member" "pipeline_bq_job" {
-  project = var.project_id
-  role    = "roles/bigquery.jobUser"
-  member  = "serviceAccount:${google_service_account.pipeline.email}"
+  project    = var.project_id
+  role       = "roles/bigquery.jobUser"
+  member     = "serviceAccount:${google_service_account.pipeline.email}"
+  depends_on = [google_project_service.apis]
 }
 
 resource "google_bigquery_dataset_iam_member" "pipeline_raw_editor" {

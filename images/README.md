@@ -1,6 +1,7 @@
 # Images
 
-Drop the following here and they will render in the root `README.md`:
+The architecture diagram lives as ASCII in the root `README.md` (renders anywhere, never goes
+stale). Drop the dashboard screenshot here once the Looker Studio dashboard exists (roadmap
+step 6) and link it from `README.md`'s Dashboard section:
 
-- `architecture.png` — the pipeline diagram (GH Archive → Parquet → GCS → BigQuery → dbt → Looker Studio).
-- `dashboard.png` — screenshot of the 2-tile Looker Studio dashboard.
+- `dashboard.png` — screenshot of the 3-tile Looker Studio dashboard.

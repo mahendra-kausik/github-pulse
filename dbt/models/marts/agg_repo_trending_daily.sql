@@ -9,6 +9,7 @@ select
     repo_name,
     count(*) as star_count
 from {{ ref('fct_events') }}
-where event_date >= cast('{{ var("start_date", "2024-01-01") }}' as date)
-  and event_type = 'WatchEvent'
+where
+    event_date >= cast('{{ var("start_date", "2024-01-01") }}' as date)
+    and event_type = 'WatchEvent'
 group by event_date, repo_id, repo_name

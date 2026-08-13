@@ -30,12 +30,31 @@ GH Archive .json.gz ──► transform (slim Parquet) ──► GCS lake ──
   uploads to GCS, loads to a partitioned + clustered BigQuery table.
 - **Warehouse** (`dbt/`): staging (cast/dedupe) → marts (`fct_events`, `dim_repo`,
   `agg_repo_trending_daily`, `agg_language_daily`, `agg_repo_momentum`, `agg_event_type_daily`).
-- **Orchestration** (`orchestration/`): Kestra flow chaining the stages, with a daily schedule
-  and a 7-day backfill.
+- **Orchestration** (`orchestration/`): Kestra flow chaining the stages on a daily schedule.
+  Backfills run one execution per day, either via the UI or `make backfill` for ingestion-only.
 - **Infra** (`terraform/`): GCS bucket + `raw`/`marts` BQ datasets + least-privilege service account.
-- **CI** (`.github/workflows/ci.yml`): creds-free lint + tests + `dbt build --empty`.
+- **CI** (`.github/workflows/ci.yml`): creds-free — lint (ruff, sqlfluff) + pytest + `dbt parse`.
 
-![Architecture](images/architecture.png)
+```
+GH Archive .json.gz (24 files/day)
+        │  download.py
+        ▼
+Python extract/transform  ──►  slim columnar Parquet   (transform.py: project only needed
+        │                          fields, incl. PR base.repo.language)
+        │  upload_gcs.py
+        ▼
+GCS data lake (raw .gz + parquet)
+        │  load_bq.py
+        ▼
+BigQuery raw table   (partitioned by event date, clustered by event type)
+        │  dbt
+        ▼
+dbt staging → marts  (fct_events, dim_repo, agg_repo_trending_daily, agg_language_daily, agg_repo_momentum)
+        │
+        ▼
+Looker Studio dashboard (3 tiles + date / repo / language filters)
+```
+<!-- images/dashboard.png: TODO once the Looker Studio dashboard is built (roadmap step 6) -->
 
 ## Dashboard
 
@@ -44,7 +63,7 @@ Three tiles in Looker Studio, with date / repo / language filters:
 2. **Language momentum** — daily PR-event counts per language over time (`agg_language_daily`).
 3. **Momentum bursts** — repos ranked by cross-signal burst score (watch + fork + PR on the same day, `agg_repo_momentum`).
 
-![Dashboard](images/dashboard.png)
+Screenshot pending — dashboard not yet built (roadmap step 6).
 
 ## How I kept it free
 
@@ -59,8 +78,9 @@ Three tiles in Looker Studio, with date / repo / language filters:
 Prereqs: Python 3.11+, a GCP project with billing enabled, `gcloud`, Terraform, Docker.
 
 ```bash
-# 1. auth + deps
+# 1. auth + deps (activate a venv first: python -m venv .venv && source .venv/bin/activate)
 gcloud auth application-default login
+cp .env.example .env   # fill in GCP_PROJECT_ID + GCS_BUCKET
 make setup
 
 # 2. infra
@@ -73,10 +93,13 @@ make backfill START=2024-01-01 DAYS=7
 make dbt
 
 # 5. (optional) run the whole thing on a schedule via Kestra
-make up        # then open http://localhost:8080 and trigger the github_pulse flow
+make up
+# open http://localhost:8080, load orchestration/flows/github_pulse.yml (Flows > Import — the
+# postgres-backed setup here doesn't auto-load ./flows), then trigger it manually or wait for
+# the 06:00 UTC daily schedule.
 ```
 
-Then point Looker Studio at the `marts` dataset and rebuild the two tiles.
+Then point Looker Studio at the `github_pulse_marts` dataset and rebuild the three tiles.
 
 ## Design notes
 

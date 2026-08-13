@@ -47,8 +47,23 @@ By projecting only the fields the marts actually need at ingest time and writing
 only that column, not whole rows. This reduces both storage and BQ query cost on load.
 
 **Why stream-parse instead of loading into pandas/memory:** Each hourly file can be hundreds of
-MB. Loading 24 of them into RAM would need ~8–15 GB. `ijson` + `gzip` stream-parses line by
-line, so peak RAM usage stays under ~500 MB regardless of file size.
+MB, and a full day is several million kept events — materializing that as a Python list before
+one `pa.Table.from_pylist` call would need multiple GB of RAM. `transform_day` instead streams
+line-by-line NDJSON parsing (`gzip` + `json.loads`, GH Archive is newline-delimited so this needs
+no dedicated streaming-JSON library) into fixed-size batches (`BATCH_SIZE = 200_000` rows), each
+flushed straight to disk through an open `pq.ParquetWriter`. Peak RAM is bounded by one batch, not
+one day.
+
+**Why the Parquet writer parses fields as strings, then casts to a typed schema:** `extract_event`
+projects raw JSON values (`created_at`, `event_date` are ISO strings straight out of the source
+data) with no per-field parsing logic. Each batch is built against a plain string schema, then
+`.cast()` to the typed schema (`created_at` → `TIMESTAMP`, `event_date` → `DATE`) right before
+writing — Arrow's cast does the ISO8601 parsing in one vectorized pass instead of a Python loop.
+This also keeps the written Parquet file's logical types identical to the BigQuery raw table's
+column types (`ingestion.load_bq.RAW_TABLE_SCHEMA`), which matters because a Parquet load into
+BigQuery validates types against the target table and does not coerce STRING into TIMESTAMP/DATE
+the way a CSV or JSON load would — a mismatch here fails every load. `tests/test_transform.py`
+locks the two schemas together so they can't drift apart silently again.
 
 **Interview answer:** "The data ingestion layer isn't transforming for cleanliness — it's
 transforming because the storage math doesn't work otherwise. The 50× size reduction is the
@@ -108,9 +123,27 @@ partition metadata per day with no benefit — queries are always in day-granula
 After filtering by date, the next most common filter is event type (e.g. "only WatchEvents for
 trending repos"). Clustering physically co-locates rows of the same type, so BQ scans even less.
 
+**Why the table schema lives in Python, not Terraform:** `ingestion/load_bq.py`'s `ensure_table`
+creates the raw table (`exists_ok=True`) with `RAW_TABLE_SCHEMA`, partitioning, and clustering,
+rather than a `google_bigquery_table` Terraform resource. The loader is the single place that
+both defines the schema and writes to it, so the two can never drift out of sync — a Terraform
+resource would need its schema hand-kept in lockstep with `ingestion/transform.py`'s Parquet
+output. Terraform owns what doesn't change per-run (bucket, datasets, IAM); the loader owns the
+table it's responsible for filling.
+
+**Why every generic test on `fct_events` carries an explicit `where`:** `require_partition_filter`
+doesn't only guard hand-written queries — dbt's generic tests (`not_null`, `unique`,
+`accepted_values`, `relationships`) compile to a `select` against the model with no filter unless
+one is configured, so without a `where` on each test `dbt build` would fail with the exact error
+the guardrail is designed to raise. Each test in `dbt/models/marts/schema.yml` sets
+`config.where: "event_date >= '{{ var(\"start_date\") }}'"`, which is also why `dbt build --empty`
+(rewrites refs as `where false`) can never pass here and isn't run in CI — `--empty` and
+`require_partition_filter` are structurally incompatible.
+
 **Interview answer:** "Partitioning + `require_partition_filter` is a billing guardrail enforced
 in the schema, not in application code. A future teammate can't write a query that blows through
-the free-tier budget by accident — the database itself rejects it."
+the free-tier budget by accident — the database itself rejects it, including my own dbt tests,
+which is why they carry the same date filter a real dashboard query would."
 
 ---
 
@@ -161,6 +194,16 @@ It needs explicit credentials. The SA key is:
 - Mounted as a read-only Docker volume (`./secrets:/secrets:ro`)
 - Never baked into the container image or printed in logs
 
+**Why the flow's tasks run via Kestra's Process runner, not a Docker task runner:** The flow's
+`ingest`/`dbt_build` tasks run as plain `Commands` tasks, executing inside the Kestra container
+itself rather than spawning a fresh `python:3.11-slim` container per task. A Docker task runner
+would need its own path to the same two things the Kestra container already has configured —
+the `/secrets` mount and the GCP env vars — via a `docker.sock` mount plus Kestra's `secret()`
+plumbing (base64 `SECRET_*` env vars on the server). Reaching for that machinery to reinvent
+access the host process already has is exactly the kind of infra-for-infra's-sake this project
+tries to avoid; the Process runner gets both for free from `docker-compose.yml`'s existing
+`env_file` and volume mount.
+
 **Principle:** Humans use identity-based auth (ADC). Machines use key-based auth, with the key
 isolated to the environment that needs it and excluded from source control.
 
@@ -189,8 +232,25 @@ GCP authentication, no real BQ queries
 SQL syntax errors and style (sqlfluff); transform field projection and PR language extraction
 correctness (pytest); dbt model/ref/source wiring (dbt parse).
 
+**Why sqlfluff uses the Jinja templater, not the dbt templater:** sqlfluff's `dbt` templater
+compiles each model by actually invoking dbt, which needs a working BigQuery connection — the
+opposite of "creds-free". The `jinja` templater's `apply_dbt_builtins` option stubs `ref()`,
+`source()`, `config()`, and `var()` well enough to lint this project's models with zero dbt
+process and zero BigQuery connection.
+
+**Why `dbt build --empty` isn't in CI, only `dbt parse`:** `--empty` rewrites every `ref`/`source`
+as `select * from <relation> where false limit 0` to validate the DAG without real data — but
+`where false` isn't a partition-elimination predicate, so it fails outright against any table with
+`require_partition_filter` set (both the raw source and `fct_events` have it). `dbt parse`
+validates the same DAG structure (refs resolve, Jinja compiles, no duplicate models) without
+compiling to SQL at all, so it validates everything `--empty` would have without hitting the
+guardrail `--empty` is structurally incompatible with.
+
 **Interview answer:** "CI should catch bugs, not introduce billing risk. Everything worth
-catching — import errors, SQL syntax, dbt structure, business logic — doesn't need live data."
+catching — import errors, SQL syntax, dbt structure, business logic — doesn't need live data. And
+where I could have reached for a tool's dbt integration (sqlfluff, `dbt build --empty`), I checked
+whether it actually needed a live connection first, rather than assuming the credentials-free flag
+made it so."
 
 ---
 
@@ -262,10 +322,20 @@ at project level, `bigquery.dataEditor` on the two datasets only (not all BQ). T
 for interviews: "least-privilege" is a security principle, and scoping IAM to specific
 resources rather than project-wide roles demonstrates it.
 
+This constraint is enforced, not aspirational: `dbt/dbt_project.yml` deliberately has no
+`+schema` override on the `staging`/`marts` model config, so both layers land in the profile's
+single target dataset (`github_pulse_marts`) rather than dbt's default schema-name concatenation
+producing new dataset names on the fly. `dataEditor` lets the SA write rows into an existing
+dataset; it does not include `bigquery.datasets.create`. A `+schema` override here would have
+forced dbt to try creating a dataset the SA has no permission to create, on every run — the
+least-privilege design only holds because the model config was written to fit inside it.
+
 **Interview answer:** "Terraform makes the infrastructure reproducible — `terraform apply` is
 the only step, not a list of console clicks. It also lets me demonstrate least-privilege IAM:
 the SA key Kestra uses can only write to this project's specific bucket and two datasets,
-nothing else."
+nothing else — and I had to make sure dbt's own dataset targeting didn't quietly ask for more
+than that, since dbt's default schema-naming would otherwise try to create new datasets the SA
+can't."
 
 ---
 
@@ -287,3 +357,98 @@ Three signals are deliberately uncorrelated: starring is passive (one click), fo
 Both models read from `fct_events` and use `countif(event_type = '...')` to count each signal in a single scan. A pivot or separate subquery per event type would require three table reads instead of one — three times the bytes billed for the same result.
 
 **Interview answer:** "The two tiles answer different questions — popularity vs. genuine viral momentum — so I kept them as separate models. The burst score uses three uncorrelated signals because any single signal is gameable; spiking all three on the same day is a reliable indicator of real human discovery."
+
+---
+
+## 12. Idempotency and reproducibility hardening
+
+**Chosen:** Download to a `.part` temp file and rename on success; explicitly enable the GCP APIs
+Terraform depends on
+**Rejected:** Leaving both as implicit assumptions ("the download completed", "the project already
+has these APIs enabled")
+
+**Why the `.part` rename:** `download_hour` originally treated any non-empty file at the final
+path as "already downloaded" and skipped re-fetching it. An interrupted download (network drop,
+Ctrl-C) leaves a truncated `.gz` at that exact path, which is non-empty — so every later run
+would skip it as complete, and `transform` would then fail deep inside `gzip.open` on a corrupt
+member. Writing to `{name}.gz.part` and only `os.replace()`-ing it to the final name after a full
+successful download means a file only ever exists at the final path if it's complete — the
+"idempotent, safe to re-run" property the ingestion docstrings already claimed becomes true.
+
+**Why explicit `google_project_service` resources:** A brand-new GCP project doesn't have
+`storage.googleapis.com` / `bigquery.googleapis.com` / `iam.googleapis.com` enabled by default.
+Without declaring them, `terraform apply` on a fresh project fails with `SERVICE_DISABLED` on
+the first resource that needs one, and the fix ("go enable these APIs in the console first") is
+exactly the kind of manual, undocumented step Terraform is supposed to eliminate (see §10).
+Declaring them as resources with `depends_on` from the bucket/dataset/SA resources makes
+`terraform apply` from a genuinely fresh project a single command again.
+
+**Interview answer:** "Two small gaps that only show up on someone else's machine: a download
+that gets interrupted shouldn't poison every future run by looking 'done', and infra-as-code
+should mean one command works on a brand-new project, not 'terraform apply, then go click enable
+in the console when it fails'."
+
+---
+
+## 13. Region: `us-central1`, not `asia-south1`
+
+**Chosen:** `us-central1` for the GCS lake bucket and both BigQuery datasets
+**Rejected:** `asia-south1` (Mumbai) — the original choice, reversed here
+
+**Why the reversal:** GCS's always-free tier (5 GB storage) only applies to three US regions
+(`us-east1`, `us-west1`, `us-central1`). `asia-south1` isn't one of them, so every byte in the
+lake bucket would be billed from day one — a small amount given the 30-day retention rule and
+sub-1 GB Parquet footprint, but a direct contradiction of the project's stated free-tier
+constraint. BigQuery's free tier is region-agnostic, so this decision is driven by GCS alone.
+
+**Interview answer:** "I'd originally picked the region nearest to me. Re-checking the free-tier
+terms, GCS's always-free storage is US-region-only — BigQuery's isn't, but GCS's is. When a
+'genuinely free' claim and a regional preference conflict, the constraint wins."
+
+---
+
+## 14. Deployed into an existing project, not a fresh one
+
+**Chosen:** Deploy into `mini-raft-prod`, a pre-existing GCP project with no organization parent
+**Rejected:** A newly created dedicated project
+
+**Why:** The linked billing account is capped at 3 projects, all already in use — creating a 4th
+project fails to link to billing (`FAILED_PRECONDITION: quota exceeded`), and BigQuery/GCS don't
+function without billing. Rather than requesting a quota increase (a support-ticket process with
+no guaranteed timeline), the pipeline reuses an existing project with headroom.
+
+**Why not the other existing project:** A second candidate project existed but is parented to a
+Google Cloud organization that enforces `constraints/iam.disableServiceAccountKeyCreation`. This
+project's Kestra design (§6) requires creating a service-account key file to mount into the
+Docker container — that org policy blocks key creation outright, which would only have surfaced
+at the orchestration step, not at `terraform apply`. `mini-raft-prod` has no organization parent,
+so the policy doesn't apply.
+
+**Interview answer:** "GCP billing accounts and org policies are real constraints, not just infra
+noise — I hit a hard project-count cap on the billing account, and separately found an org policy
+that would have silently blocked service-account key creation for Kestra on the other available
+project. I checked both constraints with `gcloud` before committing to a project, rather than
+discovering the second one three steps into deployment."
+
+---
+
+## 15. Kestra image pinned to `v1.3.32`, not `latest`
+
+**Chosen:** `image: kestra/kestra:v1.3.32` in `orchestration/docker-compose.yml`
+**Rejected:** `kestra/kestra:latest` (the original), and the older `v0.20.7`
+
+**Why:** `latest` makes the "reproducible from a fresh clone" claim false — two people running
+`docker compose up` on different days get different Kestra versions, and a breaking upstream change
+turns into a mystery failure in someone else's environment rather than a deliberate upgrade. The
+first pin attempt used `v0.20.7`, which no longer exists in the registry; Kestra had since moved to
+1.x and pruned the old tag, so the pull failed outright. `v1.3.32` is a real, current tag that was
+verified to pull and run.
+
+**Related:** flows in `./flows` are *not* auto-loaded under the Postgres backend — they must be
+imported via the UI or `kestra flow namespace update`. The compose comment says so, because the
+previous comment claimed auto-load and cost an hour of "why is my flow not there".
+
+**Interview answer:** "Pinning versions is table stakes for reproducibility, but the interesting
+part was that my first pin was to a tag that had been pruned upstream. An unpinned `latest` fails
+silently and later; a pin to a dead tag fails loudly and immediately. I'd rather have the loud
+failure — I fixed it in one step instead of debugging a version drift weeks in."

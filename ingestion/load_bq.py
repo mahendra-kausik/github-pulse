@@ -15,23 +15,25 @@ from google.cloud import bigquery
 
 from .config import Settings, load_settings
 
+# Must match ingestion.transform._arrow_schema() field-for-field — that's what gets loaded here.
+RAW_TABLE_SCHEMA = [
+    bigquery.SchemaField("id", "STRING"),
+    bigquery.SchemaField("event_type", "STRING"),
+    bigquery.SchemaField("created_at", "TIMESTAMP"),
+    bigquery.SchemaField("event_date", "DATE"),
+    bigquery.SchemaField("actor_login", "STRING"),
+    bigquery.SchemaField("repo_id", "INTEGER"),
+    bigquery.SchemaField("repo_name", "STRING"),
+    bigquery.SchemaField("language", "STRING"),
+]
+
 
 def ensure_table(client: bigquery.Client, settings: Settings) -> None:
     """Create the raw table if absent: partitioned by event_date, clustered by event_type.
 
     require_partition_filter=True makes any unfiltered query error out — a free-tier guardrail.
     """
-    schema = [
-        bigquery.SchemaField("id", "STRING"),
-        bigquery.SchemaField("event_type", "STRING"),
-        bigquery.SchemaField("created_at", "TIMESTAMP"),
-        bigquery.SchemaField("event_date", "DATE"),
-        bigquery.SchemaField("actor_login", "STRING"),
-        bigquery.SchemaField("repo_id", "INTEGER"),
-        bigquery.SchemaField("repo_name", "STRING"),
-        bigquery.SchemaField("language", "STRING"),
-    ]
-    table = bigquery.Table(settings.raw_table_fqn, schema=schema)
+    table = bigquery.Table(settings.raw_table_fqn, schema=RAW_TABLE_SCHEMA)
     table.time_partitioning = bigquery.TimePartitioning(
         type_=bigquery.TimePartitioningType.DAY,
         field="event_date",

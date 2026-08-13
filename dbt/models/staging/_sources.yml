@@ -6,6 +6,7 @@ sources:
     schema: "{{ env_var('BQ_DATASET_RAW', 'github_pulse_raw') }}"
     tables:
       - name: events
+        identifier: "{{ env_var('BQ_RAW_TABLE', 'events') }}"
         description: >
           Raw GH Archive events loaded by ingestion/load_bq.py — slim projection only.
           Partitioned by event_date, clustered by event_type.

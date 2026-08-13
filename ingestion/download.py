@@ -22,16 +22,22 @@ def hourly_url(date: str, hour: int) -> str:
 
 
 def download_hour(date: str, hour: int, dest_dir: Path, timeout: int = 60) -> Path:
-    """Download a single hour's file to dest_dir, skipping if already present. Returns the path."""
+    """Download a single hour's file to dest_dir, skipping if already present. Returns the path.
+
+    Downloads to a .part temp file and renames on success, so an interrupted download never
+    leaves a truncated file at the final path for a later run to mistake as complete.
+    """
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{date}-{hour}.json.gz"
     if dest.exists() and dest.stat().st_size > 0:
         return dest
+    part = dest.with_suffix(dest.suffix + ".part")
     with requests.get(hourly_url(date, hour), stream=True, timeout=timeout) as resp:
         resp.raise_for_status()
-        with dest.open("wb") as fh:
+        with part.open("wb") as fh:
             for chunk in resp.iter_content(chunk_size=1 << 20):
                 fh.write(chunk)
+    part.replace(dest)
     return dest
 
 

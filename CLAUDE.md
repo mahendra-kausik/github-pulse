@@ -66,7 +66,7 @@ rationale before closing the task.**
 ├── dbt/              # dbt project: models/staging + models/marts
 ├── tests/            # pytest (transform field projection + PR language extraction)
 ├── images/           # architecture diagram + dashboard screenshots
-└── .github/workflows # creds-free CI (lint + tests + dbt build --empty)
+└── .github/workflows # creds-free CI (lint + tests + dbt parse)
 ```
 
 ## Commands
@@ -75,7 +75,7 @@ The `Makefile` is the primary interface:
 
 | Command                 | What it does                                                       |
 | ----------------------- | ----------------------------------------------------------------- |
-| `make setup`            | create venv + install `requirements.txt`                          |
+| `make setup`            | install `requirements.txt` into the active venv                   |
 | `make tf-apply`         | `terraform init && terraform apply` in `terraform/`               |
 | `make ingest DATE=YYYY-MM-DD` | run download→transform→upload→load for one day              |
 | `make backfill START=YYYY-MM-DD DAYS=7` | loop `ingest` over the window                   |
@@ -94,9 +94,9 @@ python -m ingestion.upload_gcs --date 2024-01-01
 python -m ingestion.load_bq    --date 2024-01-01
 
 # dbt
-cd dbt && dbt deps && dbt build                  # full run
+cd dbt && dbt build                              # full run
 cd dbt && dbt build --select stg_github_events   # one model + its tests
-cd dbt && dbt build --empty                      # creds-free structural check (CI)
+cd dbt && dbt parse                              # creds-free structural check (CI)
 
 # terraform
 cd terraform && terraform init && terraform plan && terraform apply

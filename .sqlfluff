@@ -1,11 +1,13 @@
 [sqlfluff]
-templater = dbt
+# jinja (not dbt) templater: lints with zero BigQuery connection or `dbt deps`, using
+# apply_dbt_builtins to stub ref()/source()/config()/var() — this project's whole Jinja surface.
+templater = jinja
 dialect = bigquery
-exclude_rules = LT05, RF04   # allow long lines in generated SQL; allow keywords as identifiers
+# LT05: allow long lines in generated SQL. RF04: allow keywords as identifiers.
+exclude_rules = LT05, RF04
 
-[sqlfluff:templater:dbt]
-project_dir = dbt
-profiles_dir = dbt
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True
 
 [sqlfluff:rules:capitalisation.keywords]
 capitalisation_policy = lower

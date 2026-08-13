@@ -2,17 +2,33 @@ version: 2
 
 models:
   - name: fct_events
-    description: Fact table, grain = one GH Archive event. Partitioned/clustered.
+    description: >
+      Fact table, grain = one GH Archive event. Partitioned/clustered, require_partition_filter
+      is set, so every test below carries a `where` on event_date — an unfiltered test query
+      would be rejected by BigQuery the same way an unfiltered dashboard query would be.
     columns:
       - name: event_id
-        data_tests: [not_null, unique]
+        data_tests:
+          - not_null:
+              config:
+                where: "event_date >= '{{ var('start_date') }}'"
+          - unique:
+              config:
+                where: "event_date >= '{{ var('start_date') }}'"
       - name: event_type
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "event_date >= '{{ var('start_date') }}'"
           - accepted_values:
               values: ["PushEvent", "WatchEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent"]
+              config:
+                where: "event_date >= '{{ var('start_date') }}'"
       - name: event_date
-        data_tests: [not_null]
+        data_tests:
+          - not_null:
+              config:
+                where: "event_date >= '{{ var('start_date') }}'"
       - name: repo_id
         description: FK to dim_repo.
         data_tests:
@@ -20,7 +36,7 @@ models:
               to: ref('dim_repo')
               field: repo_id
               config:
-                where: "repo_id is not null"
+                where: "repo_id is not null and event_date >= '{{ var('start_date') }}'"
 
   - name: dim_repo
     description: One row per repo; language from latest PR event that carried it.
@@ -68,6 +84,12 @@ models:
       - name: repo_id
         data_tests: [not_null]
       - name: repo_name
+        data_tests: [not_null]
+      - name: watch_count
+        data_tests: [not_null]
+      - name: fork_count
+        data_tests: [not_null]
+      - name: pr_count
         data_tests: [not_null]
       - name: burst_score
         data_tests: [not_null]

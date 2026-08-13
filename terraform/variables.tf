@@ -4,9 +4,9 @@ variable "project_id" {
 }
 
 variable "region" {
-  description = "Location for BigQuery datasets and GCS bucket (asia-south1 = Mumbai)"
+  description = "Location for BigQuery datasets and GCS bucket (us-central1: GCS always-free tier is US-only)"
   type        = string
-  default     = "asia-south1"
+  default     = "us-central1"
 }
 
 variable "bucket_name" {

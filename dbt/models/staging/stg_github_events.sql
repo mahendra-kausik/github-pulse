@@ -21,7 +21,7 @@ deduped as (
 )
 
 select
-    id              as event_id,
+    id as event_id,
     event_type,
     created_at,
     event_date,

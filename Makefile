@@ -7,17 +7,17 @@ include .env
 export
 endif
 
-PYTHON ?= python
-VENV   ?= .venv
-DAYS   ?= 7
+PYTHON   ?= python
+VENV     ?= .venv
+DAYS     ?= 7
+DATA_DIR ?= ./data
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-setup:  ## Create venv and install dependencies
-	$(PYTHON) -m venv $(VENV)
-	$(VENV)/bin/pip install --upgrade pip
-	$(VENV)/bin/pip install -r requirements.txt
+setup:  ## Install dependencies (activate your venv first: python -m venv .venv)
+	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install -r requirements.txt
 
 tf-plan:  ## terraform plan
 	cd terraform && terraform init && terraform plan
@@ -37,7 +37,7 @@ backfill:  ## Ingest a window: make backfill START=2024-01-01 DAYS=7
 	$(PYTHON) -m ingestion.backfill --start $(START) --days $(DAYS)
 
 dbt:  ## Run dbt build (staging + marts + tests)
-	cd dbt && dbt deps && dbt build
+	cd dbt && dbt build
 
 up:  ## Start Kestra (orchestration)
 	docker compose -f orchestration/docker-compose.yml up -d
@@ -47,7 +47,7 @@ down:  ## Stop Kestra
 
 lint:  ## ruff + sqlfluff
 	ruff check .
-	sqlfluff lint dbt/models
+	sqlfluff lint dbt/models --dialect bigquery
 
 test:  ## Run pytest
 	pytest

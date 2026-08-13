@@ -9,8 +9,8 @@ select
     event_date,
     repo_id,
     repo_name,
-    countif(event_type = 'WatchEvent')       as watch_count,
-    countif(event_type = 'ForkEvent')        as fork_count,
+    countif(event_type = 'WatchEvent') as watch_count,
+    countif(event_type = 'ForkEvent') as fork_count,
     countif(event_type = 'PullRequestEvent') as pr_count,
     countif(event_type in ('WatchEvent', 'ForkEvent', 'PullRequestEvent')) as burst_score
 from {{ ref('fct_events') }}

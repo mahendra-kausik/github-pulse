@@ -1,5 +1,6 @@
 # Kestra + Postgres. ~1-2 GB RAM, runs the daily-batch demo locally (no always-on VM).
-# UI at http://localhost:8080. Flows in ./flows are auto-loaded.
+# UI at http://localhost:8080. Flows in ./flows are NOT auto-loaded with the postgres backend —
+# load github_pulse via the UI (Flows > Import) or `kestra flow namespace update github.pulse flows/`.
 volumes:
   postgres-data:
   kestra-data:
@@ -19,11 +20,15 @@ services:
       retries: 10
 
   kestra:
-    image: kestra/kestra:latest
+    image: kestra/kestra:v1.3.32
     command: server standalone --worker-thread=4
     depends_on:
       postgres:
         condition: service_healthy
+    # GCP_PROJECT_ID / GCS_BUCKET / etc. for the flow's ingest + dbt tasks (Process runner, so
+    # they run in this container and inherit its env). Copy ../.env.example to ../.env first.
+    env_file:
+      - ../.env
     environment:
       KESTRA_CONFIGURATION: |
         datasources:

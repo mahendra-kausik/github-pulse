@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GCP_PROJECT_ID: ci-dummy-project
+      GCS_BUCKET: ci-dummy-bucket
       BQ_DATASET_RAW: github_pulse_raw
       BQ_DATASET_MARTS: github_pulse_marts
     steps:
@@ -36,7 +37,4 @@ jobs:
 
       - name: dbt structural check (no creds)
         working-directory: dbt
-        run: |
-          dbt deps
-          dbt parse
-          dbt build --empty --target dev || echo "dbt --empty requires BQ connection; parse passed"
+        run: dbt parse

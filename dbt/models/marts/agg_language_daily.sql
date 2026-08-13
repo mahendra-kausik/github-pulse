@@ -10,7 +10,8 @@ select
     count(*) as pr_event_count,
     count(distinct repo_id) as distinct_repos
 from {{ ref('fct_events') }}
-where event_date >= cast('{{ var("start_date", "2024-01-01") }}' as date)
-  and event_type = 'PullRequestEvent'
-  and language is not null
+where
+    event_date >= cast('{{ var("start_date", "2024-01-01") }}' as date)
+    and event_type = 'PullRequestEvent'
+    and language is not null
 group by event_date, language

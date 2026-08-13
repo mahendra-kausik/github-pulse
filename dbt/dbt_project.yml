@@ -10,11 +10,18 @@ macro-paths: ["macros"]
 target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
+vars:
+  # Lower bound for the event_date filters in staging/marts. Override with --vars for backfills
+  # that predate this, though in practice GH Archive + this project both start 2024-01-01.
+  start_date: "2024-01-01"
+
 models:
   github_pulse:
     staging:
       +materialized: view
-      +schema: raw
     marts:
       +materialized: table
-      +schema: marts
+      # No +schema override: both layers land in the profile's target dataset
+      # (github_pulse_marts), which Terraform creates and the pipeline SA can write to.
+      # A `+schema: X` here would make dbt target `github_pulse_marts_X` instead, which
+      # neither Terraform creates nor the least-privileged SA can create on the fly.

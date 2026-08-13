@@ -2,8 +2,11 @@ id: github_pulse
 namespace: github.pulse
 
 # Daily batch: download -> upload_gcs -> load_bq -> dbt build, for one date.
-# - Manual/backfill run: set the `date` input.
-# - Scheduled run: the trigger passes yesterday's date (GH Archive lags ~a day).
+# - Scheduled run: the `date` input default resolves to yesterday (GH Archive lags ~a day).
+# - Manual/backfill run: set the `date` input — via the UI's "Trigger backfill" on the Schedule
+#   trigger (runs one execution per missed day), or `kestra flow execute github.pulse
+#   github_pulse --inputs date=2024-01-01` per day. For local-only backfills that skip Kestra
+#   and dbt entirely, `make backfill START=2024-01-01 DAYS=7` runs just the ingestion stages.
 
 inputs:
   - id: date
@@ -23,15 +26,12 @@ tasks:
         url: "{{ vars.repo_url }}"
         branch: main
 
+      # Both tasks run via Kestra's default Process runner, inside the Kestra container itself.
+      # That container already has the GCP env vars (docker-compose.yml env_file) and the SA key
+      # mount (./secrets:/secrets:ro) — a Docker task runner would need its own docker.sock mount
+      # and its own secret plumbing to reach either, for no benefit at this scale.
       - id: ingest
         type: io.kestra.plugin.scripts.python.Commands
-        taskRunner:
-          type: io.kestra.plugin.scripts.runner.docker.Docker
-        containerImage: python:3.11-slim
-        env:
-          GCP_PROJECT_ID: "{{ secret('GCP_PROJECT_ID') }}"
-          GCS_BUCKET: "{{ secret('GCS_BUCKET') }}"
-          GOOGLE_APPLICATION_CREDENTIALS: "/secrets/sa-key.json"
         commands:
           - pip install -q -r requirements.txt
           - python -m ingestion.download   --date {{ inputs.date }}
@@ -41,24 +41,11 @@ tasks:
 
       - id: dbt_build
         type: io.kestra.plugin.scripts.python.Commands
-        taskRunner:
-          type: io.kestra.plugin.scripts.runner.docker.Docker
-        containerImage: python:3.11-slim
-        env:
-          GCP_PROJECT_ID: "{{ secret('GCP_PROJECT_ID') }}"
-          GOOGLE_APPLICATION_CREDENTIALS: "/secrets/sa-key.json"
-          DBT_PROFILES_DIR: "./dbt"
         commands:
-          - pip install -q dbt-bigquery
-          - cd dbt && dbt deps && dbt build --target service_account
+          - pip install -q dbt-bigquery==1.8.2
+          - cd dbt && dbt build --target service_account
 
 triggers:
   - id: daily
     type: io.kestra.plugin.core.trigger.Schedule
     cron: "0 6 * * *"   # 06:00 UTC daily; GH Archive for "yesterday" is available by then
-
-# Backfill the 7-day window from the UI/CLI with:
-#   for d in 0 1 2 3 4 5 6; do
-#     date=$(date -u -d "2024-01-0$((d+1))" +%F)
-#     kestra flow execute github.pulse github_pulse --inputs date=$date
-#   done
