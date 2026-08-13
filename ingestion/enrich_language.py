@@ -24,6 +24,8 @@ import time
 
 import requests
 from google.cloud import bigquery
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 from .config import Settings, load_settings
 
@@ -130,33 +132,46 @@ def enrich(settings: Settings, lookback_days: int, ttl_days: int, max_calls: int
             "User-Agent": USER_AGENT,
         }
     )
+    # Transient network blips (connection resets, 5xx) are common at this call volume and
+    # shouldn't crash the whole batch — retry those in urllib3 rather than hand-rolling it.
+    # 403/429 are excluded so RateLimited below still fires immediately, with no wasted retries.
+    retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
+    session.mount("https://", HTTPAdapter(max_retries=retry))
 
     rows = []
-    for repo_id, repo_name in targets:
-        try:
-            language = fetch_language(session, repo_name)
-        except RateLimited as exc:
-            print(f"Rate limited after {len(rows)} calls, stopping cleanly: {exc}")
-            break
-        rows.append(
-            {
-                "repo_id": repo_id,
-                "repo_name": repo_name,
-                "language": language,
-                "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            }
-        )
-
-    if rows:
-        # Load job (like load_bq.py), not a streaming insert: stays inside BQ's free-tier load
-        # quota and matches the batch-write style used everywhere else in this pipeline.
-        job_config = bigquery.LoadJobConfig(
-            schema=CACHE_TABLE_SCHEMA,
-            source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-            write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-        )
-        job = client.load_table_from_json(rows, cache_table_fqn(settings), job_config=job_config)
-        job.result()
+    try:
+        for repo_id, repo_name in targets:
+            try:
+                language = fetch_language(session, repo_name)
+            except RateLimited as exc:
+                print(f"Rate limited after {len(rows)} calls, stopping cleanly: {exc}")
+                break
+            except requests.exceptions.RequestException as exc:
+                print(f"Skipping {repo_name} after request error: {exc}")
+                continue
+            rows.append(
+                {
+                    "repo_id": repo_id,
+                    "repo_name": repo_name,
+                    "language": language,
+                    "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }
+            )
+    finally:
+        # Write whatever succeeded even if the loop above exited early (rate limit or an
+        # exception) — otherwise a single bad request loses an entire run's worth of fetches.
+        if rows:
+            # Load job (like load_bq.py), not a streaming insert: stays inside BQ's free-tier
+            # load quota and matches the batch-write style used everywhere else in this pipeline.
+            job_config = bigquery.LoadJobConfig(
+                schema=CACHE_TABLE_SCHEMA,
+                source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+                write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+            )
+            job = client.load_table_from_json(
+                rows, cache_table_fqn(settings), job_config=job_config
+            )
+            job.result()
 
     return len(rows)
 
