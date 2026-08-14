@@ -697,3 +697,64 @@ of every model. What made it dangerous wasn't the wrong value, it was that it fa
 empty result set isn't an error. The fix I liked wasn't correcting the date, it was removing the
 second source of truth entirely — retention already defines the lower bound in Terraform, so the SQL
 filter just needs to be a floor that can never be wrong, not a copy of it that has to be maintained."
+
+---
+
+# Problems faced
+
+Incidents, not choices: something broke or silently misbehaved, and this is what it cost to find
+and fix. Numbered `P-XX` so they stay distinct from the numbered design decisions above.
+
+## P-01. The language tile silently went to zero rows
+
+**Symptom:** after cutting the pipeline over from 2024 GH Archive data to live 2026 data, the
+language-momentum tile (tile 2) rendered empty. `agg_language_daily` had 0 rows and
+`dim_repo.language` was non-null for 0 of 2,039,016 repos.
+
+**Why it was invisible:** nothing failed. The ingestion ran clean, `dbt build` passed every test,
+and BigQuery raised no error — because an always-NULL column is not an error condition. The only
+signal was a chart with no data on it. This is the same failure class as §20: the pipeline was
+*succeeding* at producing nothing.
+
+**Root cause:** GitHub stopped emitting `payload.pull_request.base.repo.language` on
+`PullRequestEvent` sometime between the 2024 archive data the project was built against and Aug
+2026. Confirmed directly against a raw hour on disk (`data/2026-08-12/2026-08-12-0.json.gz`):
+`payload.pull_request.base.repo` carries only `id`/`name`/`url` across all 409 PR events in that
+hour, with zero exceptions. So the field the whole language feature depended on had quietly
+disappeared upstream, in a source we don't control and can't version-pin.
+
+**How it was overcome:** language is now fetched from `GET /repos/{owner}/{repo}` and cached in an
+unpartitioned `raw.repo_language` table, joined at query time via `stg_repo_language`
+(`ingestion/enrich_language.py`). The full rationale — cache location, TTL, budget cap, 404
+handling — is §19. `transform.py` still projects the dead payload field for schema stability, so
+the original path starts working again for free if GitHub ever restores it.
+
+**Verified working:** across an overnight run, 4,500 repos/batch resolved at a **95.7% hit rate**
+(11,316 of 11,819 cached rows carry a real language). The remaining ~4% are deleted, private,
+renamed, or genuinely language-less repos, cached as NULL specifically so they are never re-fetched.
+
+**Residual limitation — this is a mitigation, not a cure.** The fix trades a dead field for a rate
+limit, and the rate limit binds. Measured on the 21-day window:
+
+| Quantity | Measured |
+| -------- | -------- |
+| Repos with PR activity needing enrichment | 117,328 |
+| GitHub authenticated budget | 5,000 req/hr (script caps at 4,500) |
+| Wall-clock for full coverage | ~26 hours |
+| Distinct PR repos arriving per day | 3,648 – 46,131 |
+
+One API call per repo against a hard hourly ceiling means the daily pipeline's single budgeted run
+cannot keep pace on a busy day, so the cache runs permanently behind and **the language tile is a
+sample, not a census**. It is a *deliberately biased* sample: candidates are selected
+newest-active-first, so the coverage that does exist is concentrated on currently-active repos,
+which is the population the tile is about. Directionally sound for "which languages are gaining
+momentum"; not a source of absolute counts, and it should not be presented as one.
+
+**Interview answer:** "The feature broke because an upstream provider silently dropped a field —
+no error, no deprecation notice, just NULLs, and my tests all still passed because 'this column is
+always empty' isn't something a not-null test on a different column catches. I replaced the dead
+payload field with an API-backed cache, but the honest part of the answer is that it's a mitigation
+rather than a fix: I traded a missing field for a rate limit, and at 117k repos against 5k requests
+an hour that limit is binding. So I made the sampling bias deliberate and documented — newest-active
+repos first — rather than pretending the tile is a complete count. Knowing which of your numbers are
+estimates is more useful than everything looking authoritative."
