@@ -1,6 +1,6 @@
 -- Language-momentum tile source: PR-event counts per (date, language).
--- `fct_events.language` is always NULL on live data (GitHub stopped sending it — see CLAUDE.md
--- "Data semantics"), so language comes from the repo_language cache instead, fetched via the
+-- `fct_events.language` is always NULL on live data (GitHub stopped sending it on PR event
+-- payloads), so language comes from the repo_language cache instead, fetched via the
 -- GitHub REST API by ingestion/enrich_language.py. This is the temporal "which languages are
 -- gaining momentum" signal.
 

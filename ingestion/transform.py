@@ -25,7 +25,7 @@ def extract_language(event: dict) -> str | None:
     """Return repo language, available ONLY on PullRequestEvent.
 
     Path: payload.pull_request.base.repo.language. All other event types lack it, so this
-    returns None for them. This is why agg_language_daily is PR-derived (see CLAUDE.md).
+    returns None for them. This is why agg_language_daily is PR-derived.
     """
     if event.get("type") != "PullRequestEvent":
         return None

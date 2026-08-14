@@ -21,5 +21,7 @@ sources:
         description: >
           Repo -> language cache, fetched from the GitHub REST API by
           ingestion/enrich_language.py (language is no longer present on live PR event payloads).
-          Append-only, deliberately UNPARTITIONED (see DESIGN_DECISIONS.md) — do not add
-          partitioning to this table.
+          Append-only and deliberately UNPARTITIONED — do not add partitioning to this table.
+          The raw dataset's 30-day default_partition_expiration_ms only applies to partitioned
+          tables, so leaving this one unpartitioned is what keeps the cache from being silently
+          wiped and re-triggering a full refetch.

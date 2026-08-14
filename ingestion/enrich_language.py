@@ -2,12 +2,12 @@
 
 Why this exists: GitHub stopped emitting `language` on the PR event payload sometime after the
 2024 GH Archive data this project was built against, so `fct_events.language` is always NULL on
-live data now (see CLAUDE.md "Data semantics" and DESIGN_DECISIONS.md). This stage restores
+live data now. This stage restores
 language coverage out-of-band by calling `GET /repos/{owner}/{repo}` for repos seen in recent PR
 events and caching the result in `{raw}.repo_language`. dbt joins to this cache at read time
 (stg_repo_language) instead of reading the (now-dead) column.
 
-Cache table is UNPARTITIONED — deliberately, see DESIGN_DECISIONS.md. The raw dataset's
+Cache table is UNPARTITIONED — deliberately. The raw dataset's
 30-day default_partition_expiration_ms only applies to partitioned tables, so leaving this one
 unpartitioned is what keeps it from being silently wiped and re-triggering a full refetch.
 

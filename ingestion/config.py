@@ -14,7 +14,7 @@ GHARCHIVE_BASE_URL = "https://data.gharchive.org"  # files look like {date}-{hou
 HOURS_PER_DAY = 24
 
 # Event types we keep. Language used to be present on PullRequestEvent, but GitHub stopped
-# emitting it on live data (see ingestion/enrich_language.py + CLAUDE.md "Data semantics").
+# emitting it on live data (see ingestion/enrich_language.py).
 KEEP_EVENT_TYPES = {
     "PushEvent",
     "WatchEvent",

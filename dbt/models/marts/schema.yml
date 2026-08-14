@@ -41,7 +41,7 @@ models:
   - name: dim_repo
     description: >
       One row per repo; language from the repo_language cache (GitHub REST API enrichment,
-      ingestion/enrich_language.py), not from event payloads — see CLAUDE.md "Data semantics".
+      ingestion/enrich_language.py), not from event payloads, which no longer carry it.
     columns:
       - name: repo_id
         data_tests: [not_null, unique]

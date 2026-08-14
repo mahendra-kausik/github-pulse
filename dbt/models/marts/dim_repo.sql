@@ -1,6 +1,6 @@
 -- Repo dimension: one row per repo. language comes from the repo_language cache (fetched via the
--- GitHub REST API by ingestion/enrich_language.py) — event payloads no longer carry it, see
--- CLAUDE.md "Data semantics". Null for repos not yet enriched or genuinely language-less.
+-- GitHub REST API by ingestion/enrich_language.py) — event payloads no longer carry it.
+-- Null for repos not yet enriched or genuinely language-less.
 
 {{ config(materialized='table') }}
 

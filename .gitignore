@@ -40,3 +40,8 @@ terraform/.terraform/
 .idea/
 .DS_Store
 Thumbs.db
+
+# --- local-only working docs (agent instructions, interview prep) ---
+CLAUDE.md
+DESIGN_DECISIONS.md
+.claude/

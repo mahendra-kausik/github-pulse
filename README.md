@@ -95,7 +95,7 @@ once. That contrast is why the two repo tiles are separate models rather than on
   `fct_events` grow at ~0.57 GB/day combined, so 30 days settles around **~17 GB at steady state —
   over the 10 GB free tier** (~$0.15/month overage). A 14-day window would fit inside the free
   tier with margin; 30 was kept anyway for a more useful rolling dashboard, trading a few cents a
-  month for it deliberately rather than by accident (`DESIGN_DECISIONS.md` §17).
+  month for it deliberately rather than by accident.
 - **`maximum_bytes_billed`** set in the dbt profile — a runaway query fails instead of billing.
 - A **GCP billing budget alert** at a low threshold as a backstop.
 
@@ -145,7 +145,7 @@ Then point Looker Studio at the `github_pulse_marts` dataset and rebuild the thr
   stopped sending that field on live data — the field is still projected by `transform.py` for
   schema stability, but it's always NULL now. `ingestion/enrich_language.py` fetches
   `GET /repos/{owner}/{repo}` for repos seen in recent PR events and caches the result
-  (unpartitioned, TTL-based refresh, budget-capped per run — see `DESIGN_DECISIONS.md` §19);
+  (unpartitioned, TTL-based refresh, budget-capped per run);
   `dim_repo` and `agg_language_daily` join to that cache instead. `GH_PAT` (a scopeless classic
   PAT is enough for public repos) needs to be set as a repo secret for this step to run.
 
