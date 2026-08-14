@@ -708,6 +708,15 @@ newest-active-first, so the coverage that does exist is concentrated on currentl
 which is the population the tile is about. Directionally sound for "which languages are gaining
 momentum"; not a source of absolute counts, and it should not be presented as one.
 
+**The bias measurably pays off.** After an 8-batch overnight run cached 43,319 repos — 36.9% of the
+117,328 backlog — coverage measured *by PR event* rather than by repo was **46.7%** (106,819 of
+228,824 PR events in the 21-day window resolve to a language). Prioritising recently-active repos
+buys ~10 points of extra event coverage over what a uniform sample of the same size would return,
+because active repos generate disproportionately many events. The right denominator for judging
+this tile is events, not repos: `dim_repo.language` looks alarming at 0.9% populated, but that
+counts all 4,595,405 repos with *any* event type, and language is only ever resolvable — or
+relevant — for the PR-active subset.
+
 **Interview answer:** "The feature broke because an upstream provider silently dropped a field —
 no error, no deprecation notice, just NULLs, and my tests all still passed because 'this column is
 always empty' isn't something a not-null test on a different column catches. I replaced the dead
