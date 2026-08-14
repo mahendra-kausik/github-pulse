@@ -69,6 +69,6 @@ triggers:
   # day all at once.
   - id: daily
     type: io.kestra.plugin.core.trigger.Schedule
-    cron: "0 6 * * *"   # 06:00 UTC daily; GH Archive for "yesterday" is available by then
+    cron: "23 6 * * *"  # 06:23 UTC (11:53 AM IST); kept in step with .github/workflows/daily_ingest.yml
     disabled: true
     recoverMissedSchedules: NONE

@@ -5,7 +5,11 @@ name: daily-ingest
 # runs this same command sequence on demand; this is what runs it unattended every day.
 on:
   schedule:
-    - cron: "0 6 * * *" # 06:00 UTC; GH Archive for "yesterday" is available by then
+    # 06:23 UTC (11:53 AM IST). Deliberately off :00 and :30 — GitHub defers scheduled runs on
+    # shared runners when a slot is contested, and the top of the hour is where every cron piles
+    # up. Measured on 2026-08-14 at "0 6": due 06:00 UTC, actually started 07:16 UTC — 77 min late.
+    # Still ~6h of margin, since GH Archive finishes publishing a UTC day shortly after 00:00 UTC.
+    - cron: "23 6 * * *"
   workflow_dispatch:
     inputs:
       date:
