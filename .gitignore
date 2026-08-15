@@ -44,5 +44,5 @@ Thumbs.db
 # --- local-only working docs (agent instructions, interview prep) ---
 CLAUDE.md
 DESIGN_DECISIONS.md
-ProjectInfo.md
+ProjectInfo-GithubPulse.md
 .claude/
