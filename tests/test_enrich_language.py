@@ -59,7 +59,6 @@ def _settings() -> Settings:
         dataset_raw="raw",
         dataset_marts="marts",
         raw_table="events",
-        max_bytes_billed=1,
         data_dir=None,
         github_token="fake-token",
     )

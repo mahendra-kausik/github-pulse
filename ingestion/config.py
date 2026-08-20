@@ -47,7 +47,6 @@ class Settings:
     dataset_raw: str
     dataset_marts: str
     raw_table: str
-    max_bytes_billed: int
     data_dir: Path
     github_token: str | None
 
@@ -71,7 +70,6 @@ def load_settings() -> Settings:
         dataset_raw=os.environ.get("BQ_DATASET_RAW", "github_pulse_raw"),
         dataset_marts=os.environ.get("BQ_DATASET_MARTS", "github_pulse_marts"),
         raw_table=os.environ.get("BQ_RAW_TABLE", "events"),
-        max_bytes_billed=int(os.environ.get("MAX_BYTES_BILLED", "5000000000")),
         data_dir=Path(os.environ.get("DATA_DIR", "./data")),
         github_token=os.environ.get("GH_PAT"),
     )
