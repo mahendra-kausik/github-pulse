@@ -4,6 +4,10 @@ A batch data pipeline that turns raw [GH Archive](https://www.gharchive.org/) pu
 into a **"which languages and projects are gaining momentum"** dashboard — built end-to-end on
 GCP and kept entirely inside the always-free tier.
 
+> **Status: archived (Oct 2026).** The GCP project was deleted when the free trial ended, so the
+> live pipeline and dashboard are no longer running. The screenshots in `images/` show it while
+> live, and `make tf-apply` plus the run steps below rebuild it from a fresh GCP project.
+
 > DataTalksClub Data Engineering Zoomcamp capstone. Also a resume project: the interesting part
 > isn't "I moved JSON to BigQuery", it's the **cost-engineering** (staying under 10 GB storage /
 > 1 TB queries a month) and the **reproducibility** (one clone + documented steps → working
@@ -34,9 +38,9 @@ GH Archive .json.gz ──► transform (slim Parquet) ──► GCS lake ──
   `agg_repo_trending_daily`, `agg_language_daily`, `agg_repo_momentum`, `agg_event_type_daily`).
 - **Orchestration** (`orchestration/`): a Kestra flow chains the four stages + `dbt build`, and is
   the on-demand/backfill path (`kestra flow execute`, or `make backfill` for ingestion-only). The
-  **live daily run is `.github/workflows/daily_ingest.yml`** — a scheduled GitHub Actions
-  workflow — since Kestra only runs while its Docker container is up on a laptop, and this pipeline
-  needed to run unattended every day. Kestra's own daily trigger is present but `disabled: true`
+  **daily run was `.github/workflows/daily_ingest.yml`** — a scheduled GitHub Actions
+  workflow (now disabled, see Status) — since Kestra only runs while its Docker container is up on
+  a laptop, and this pipeline needed to run unattended every day. Kestra's own daily trigger is present but `disabled: true`
   for that reason; re-enabling it is safe by default (`recoverMissedSchedules: NONE`), so it stays
   demoable without risking a pile of catch-up executions.
 - **Infra** (`terraform/`): GCS bucket (30-day lifecycle) + `raw` BQ dataset (30-day partition
